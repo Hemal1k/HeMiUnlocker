@@ -1,5 +1,5 @@
-; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
-; For the current user, without administrator rights. Uninstalling removes the File Explorer item of the app as well.
+﻿; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
+; For the current user (no administrator) or for all users - the installer asks. Uninstalling removes the File Explorer item of the app as well.
 
 #ifndef AppVersion
   #define AppVersion "0.0.0"
@@ -20,10 +20,12 @@ AppPublisher=Richard Hemala
 AppPublisherURL=https://github.com/Hemal1k/HeMiUnlocker
 AppSupportURL=https://github.com/Hemal1k/HeMiUnlocker/issues
 AppUpdatesURL=https://github.com/Hemal1k/HeMiUnlocker/releases
-DefaultDirName={localappdata}\Programs\HeMiUnlocker
+DefaultDirName={autopf}\HeMiUnlocker
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
+; the first page asks: for me only (default, no administrator) or for all users (Program Files, asks for administrator)
+PrivilegesRequiredOverridesAllowed=dialog commandline
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 MinVersion=10.0
@@ -46,10 +48,10 @@ Name: "cs"; MessagesFile: "compiler:Languages\Czech.isl"
 Source: "{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{userprograms}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"
+Name: "{autoprograms}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"
 
 [Run]
-Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker}"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [Registry]
 ; the File Explorer item the app writes when it is switched on: removed with the app

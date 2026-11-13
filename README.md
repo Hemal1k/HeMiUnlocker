@@ -15,7 +15,7 @@ file or folder** – and closes it, nicely or by force. One small window in the 
 
 | File | For |
 |---|---|
-| `HeMiUnlocker-Setup.exe` | The installer – for the current user (no administrator), with a Start menu entry and an uninstaller. |
+| `HeMiUnlocker-Setup.exe` | The installer – just for you (no administrator) or for all users (Program Files), with a Start menu entry and an uninstaller. |
 | `HeMiUnlocker-Portable.zip` | Just the program; run it from any folder. |
 
 Windows 10 / 11, x64. Nothing else needs to be installed.
