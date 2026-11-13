@@ -20,6 +20,7 @@ use std::time::{Duration, Instant};
 
 /// Problems and ideas: the Issues of the project on GitHub (no e-mail address in the public code).
 const CONTACT: &str = "github.com/Hemal1k/HeMiUnlocker/issues";
+const RELEASES: &str = "github.com/Hemal1k/HeMiUnlocker/releases";
 const CONTROL_RADIUS: u8 = 8;
 const CARD_RADIUS: u8 = 10;
 
@@ -374,6 +375,16 @@ impl HeMiUnlockerApp {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     if Btn::new(tr("Report a problem", "Nahlásit problém")).tip(CONTACT).show(ui, &p).clicked() {
                         acts.push(Action::Open(format!("https://{CONTACT}")));
+                    }
+                });
+            });
+        });
+        card(ui, &p, |ui| {
+            row_layout(ui, 44.0, |ui| {
+                two_lines(ui, &p, tr("What's new", "Co je nového"), tr("The changes of every version and new downloads", "Změny každé verze a nové verze ke stažení"));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    if Btn::new(tr("Open", "Otevřít")).tip(RELEASES).show(ui, &p).clicked() {
+                        acts.push(Action::Open(format!("https://{RELEASES}")));
                     }
                 });
             });
