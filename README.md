@@ -1,9 +1,13 @@
 # HeMiUnlocker
 
+[![Latest release](https://img.shields.io/github/v/release/Hemal1k/HeMiUnlocker?label=release)](https://github.com/Hemal1k/HeMiUnlocker/releases/latest) [![Downloads](https://img.shields.io/github/downloads/Hemal1k/HeMiUnlocker/total)](https://github.com/Hemal1k/HeMiUnlocker/releases) [![License: MIT](https://img.shields.io/github/license/Hemal1k/HeMiUnlocker)](LICENSE) ![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4)
+
 “The action can't be completed because the file is open in another program.” HeMiUnlocker shows **which program holds a
 file or folder** – and closes it, nicely or by force. One small window in the look of Windows 11, English and Czech.
 
 **[Download](https://github.com/Hemal1k/HeMiUnlocker/releases/latest)** · [Project page](https://hemal1k.github.io/hemiunlocker.html) · [Report a problem](https://github.com/Hemal1k/HeMiUnlocker/issues)
+
+![HeMiUnlocker](.github/screenshot.png)
 
 > Not signed yet – Windows SmartScreen may warn the first time (More info → Run anyway).
 
