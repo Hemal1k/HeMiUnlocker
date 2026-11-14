@@ -21,6 +21,7 @@ use std::time::{Duration, Instant};
 /// Problems and ideas: the Issues of the project on GitHub (no e-mail address in the public code).
 const CONTACT: &str = "github.com/Hemal1k/HeMiUnlocker/issues";
 const RELEASES: &str = "github.com/Hemal1k/HeMiUnlocker/releases";
+const PROJECT: &str = "github.com/Hemal1k/HeMiUnlocker";
 const CONTROL_RADIUS: u8 = 8;
 const CARD_RADIUS: u8 = 10;
 
@@ -110,6 +111,9 @@ enum Action {
     About(bool),
     Open(String),
     OpenLicences,
+    /// HeMi Launcher, for the updates.
+    Launcher,
+    TakeOwnership,
 }
 
 pub struct HeMiUnlockerApp {
@@ -369,38 +373,28 @@ impl HeMiUnlockerApp {
         value(ui, tr("Author", "Autor"), "Richard Hemala");
         value(ui, tr("Version", "Verze"), &format!("Beta {}", env!("CARGO_PKG_VERSION")));
         value(ui, tr("Build date", "Datum sestavení"), &i18n::build_date());
-        card(ui, &p, |ui| {
-            row_layout(ui, 44.0, |ui| {
-                ui.label(RichText::new(tr("Contact", "Kontakt")).size(14.0).color(p.text));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if Btn::new(tr("Report a problem", "Nahlásit problém")).tip(CONTACT).show(ui, &p).clicked() {
-                        acts.push(Action::Open(format!("https://{CONTACT}")));
-                    }
+        // as the About page of HeMiDock: a title and the button, no descriptions
+        let open = |ui: &mut egui::Ui, title: &str, tip: &str, act: Action, acts: &mut Vec<Action>| {
+            card(ui, &p, |ui| {
+                row_layout(ui, 44.0, |ui| {
+                    ui.label(RichText::new(title).size(14.0).color(p.text));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if Btn::new(tr("Open", "Otevřít")).tip(tip).show(ui, &p).clicked() {
+                            acts.push(act);
+                        }
+                    });
                 });
             });
-        });
-        card(ui, &p, |ui| {
-            row_layout(ui, 44.0, |ui| {
-                two_lines(ui, &p, tr("What's new", "Co je nového"), tr("The changes of every version and new downloads", "Změny každé verze a nové verze ke stažení"));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if Btn::new(tr("Open", "Otevřít")).tip(RELEASES).show(ui, &p).clicked() {
-                        acts.push(Action::Open(format!("https://{RELEASES}")));
-                    }
-                });
-            });
-        });
-        card(ui, &p, |ui| {
-            row_layout(ui, 44.0, |ui| {
-                two_lines(ui, &p, tr("Licences", "Licence"), tr("Licences of the components used", "Licence použitých součástí"));
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if Btn::new(tr("Open", "Otevřít")).show(ui, &p).clicked() {
-                        acts.push(Action::OpenLicences);
-                    }
-                });
-            });
-        });
+        };
+        open(ui, tr("Project on GitHub", "Projekt na GitHubu"), PROJECT, Action::Open(format!("https://{PROJECT}")), acts);
+        open(ui, tr("What's new", "Co je nového"), RELEASES, Action::Open(format!("https://{RELEASES}")), acts);
+        // HeMi Launcher on this PC: the updates are its job
+        if crate::launcher::exe().is_some() {
+            open(ui, tr("Updates in HeMi Launcher", "Aktualizace v HeMi Launcheru"), "HeMi Launcher", Action::Launcher, acts);
+        }
+        open(ui, tr("Report a problem", "Nahlásit problém"), CONTACT, Action::Open(format!("https://{CONTACT}")), acts);
+        open(ui, tr("Licences", "Licence"), "", Action::OpenLicences, acts);
     }
-
     fn target_card(&self, ui: &mut egui::Ui, acts: &mut Vec<Action>) {
         let p = self.p;
         section(ui, &p, if self.targets.iter().any(|t| t.is_dir()) { tr("Folder", "Složka") } else { tr("File", "Soubor") });
@@ -428,6 +422,13 @@ impl HeMiUnlockerApp {
                         }
                         if Btn::new(tr("Other file…", "Jiný soubor…")).icon(glyph::OPEN_FILE).show(ui, &p).clicked() {
                             acts.push(Action::PickFiles);
+                        }
+                        let tip = tr(
+                            "Take ownership: you become the owner and the administrators get full control (asks for administrator rights).",
+                            "Převzít vlastnictví: staneš se vlastníkem a správci dostanou plný přístup (zeptá se na oprávnění správce).",
+                        );
+                        if Btn::new("").icon(glyph::SHIELD).subtle().tip(tip).show(ui, &p).clicked() {
+                            acts.push(Action::TakeOwnership);
                         }
                         if let [one] = self.targets.as_slice() {
                             let tip = tr("Show in File Explorer", "Ukázat v Průzkumníkovi");
@@ -523,7 +524,7 @@ impl HeMiUnlockerApp {
                         glyph_box(ui, glyph::COMPLETED, 22.0, p.success);
                         ui.add_space(6.0);
                         let text = if self.targets.iter().any(|t| t.is_dir()) {
-                            tr("No process has the folder open", "Složka nemá otevřený žádný proces")
+                            tr("No process has the folder open", "Složku nemá otevřenou žádný proces")
                         } else {
                             tr("No process has the file open", "Soubor nemá otevřený žádný proces")
                         };
@@ -817,6 +818,12 @@ impl HeMiUnlockerApp {
                 Action::DismissToast => self.toast = None,
                 Action::About(on) => self.about = on,
                 Action::Open(target) => procs::shell_open(&target),
+                Action::TakeOwnership => {
+                    if !crate::ownership::start(&self.targets) {
+                        self.toast(tr("Ownership needs administrator rights.", "Převzetí vlastnictví potřebuje oprávnění správce."), Tone::Caution);
+                    }
+                }
+                Action::Launcher => crate::launcher::open(),
                 Action::OpenLicences => {
                     let file = std::env::temp_dir().join("HeMiUnlocker-ThirdPartyNotices.txt");
                     match std::fs::write(&file, include_str!("../assets/ThirdPartyNotices.txt")) {

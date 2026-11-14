@@ -3,7 +3,9 @@
 
 mod app;
 mod i18n;
+mod launcher;
 mod locks;
+mod ownership;
 mod procs;
 mod shell_menu;
 mod theme;
@@ -19,6 +21,14 @@ fn main() -> eframe::Result {
         let (paths, elevated) = unlock::args(&args[1..]);
         if !paths.is_empty() {
             unlock::run(paths, elevated);
+        }
+        return Ok(());
+    }
+    // "Take ownership": the same without the window, as administrator
+    if args.first().map(String::as_str) == Some(ownership::SWITCH) {
+        let (paths, elevated) = ownership::args(&args[1..]);
+        if !paths.is_empty() {
+            ownership::run(paths, elevated);
         }
         return Ok(());
     }

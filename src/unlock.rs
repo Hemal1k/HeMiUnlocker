@@ -35,7 +35,7 @@ enum Outcome {
 pub fn run(targets: Vec<PathBuf>, elevated: bool) {
     let outcome = unlock(&targets);
     // still held and not yet administrator: once more as administrator (it notifies itself)
-    if matches!(outcome, Outcome::Held(_) | Outcome::Unknown) && !elevated && !procs::self_elevated() && relaunch_elevated(&targets) {
+    if matches!(outcome, Outcome::Held(_) | Outcome::Unknown) && !elevated && !procs::self_elevated() && relaunch_elevated(SWITCH, &targets) {
         return;
     }
     notify(&targets, outcome);
@@ -86,9 +86,9 @@ fn unlock(targets: &[PathBuf]) -> Outcome {
 }
 
 /// HeMiUnlocker again as administrator with the same files; false when Windows (or the user) said no.
-fn relaunch_elevated(targets: &[PathBuf]) -> bool {
+pub fn relaunch_elevated(switch: &str, targets: &[PathBuf]) -> bool {
     let Ok(exe) = std::env::current_exe() else { return false };
-    let mut params = format!("{SWITCH} {ELEVATED}");
+    let mut params = format!("{switch} {ELEVATED}");
     for t in targets {
         params.push_str(&format!(" \"{}\"", t.display()));
     }
@@ -103,7 +103,7 @@ fn relaunch_elevated(targets: &[PathBuf]) -> bool {
     unsafe { ShellExecuteExW(&mut info) != 0 }
 }
 
-fn name_of(targets: &[PathBuf]) -> String {
+pub fn name_of(targets: &[PathBuf]) -> String {
     match targets {
         [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| one.display().to_string()),
         many => tr("{n} items", "{n} položek").replace("{n}", &many.len().to_string()),
@@ -114,13 +114,13 @@ fn name_of(targets: &[PathBuf]) -> String {
 const APP_ID: &str = "HeMi.HeMiUnlocker";
 
 /// A notification of Windows (a toast, as other apps have); false when Windows did not take it.
-fn toast(title: &str, text: &str) -> bool {
+pub fn toast(title: &str, text: &str) -> bool {
     use windows::Data::Xml::Dom::XmlDocument;
     use windows::UI::Notifications::{ToastNotification, ToastNotificationManager};
     use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
     use windows::core::HSTRING;
     // the app id with the name and the icon of HeMiUnlocker (the icon as a file next to the settings of the user)
-    let icon = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("HeMiUnlocker").join("HeMiUnlocker.png"));
+    let icon = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("HeMi").join("HeMiUnlocker").join("HeMiUnlocker.png"));
     if let Some(icon) = &icon
         && !icon.exists()
     {

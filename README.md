@@ -3,7 +3,7 @@
 [![Latest release](https://img.shields.io/github/v/release/Hemal1k/HeMiUnlocker?label=release)](https://github.com/Hemal1k/HeMiUnlocker/releases/latest) [![Downloads](https://img.shields.io/github/downloads/Hemal1k/HeMiUnlocker/total)](https://github.com/Hemal1k/HeMiUnlocker/releases) [![License: MIT](https://img.shields.io/github/license/Hemal1k/HeMiUnlocker)](LICENSE) ![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4)
 
 “The action can't be completed because the file is open in another program.” HeMiUnlocker shows **which program holds a
-file or folder** – and closes it, nicely or by force. One small window in the look of Windows 11, English and Czech.
+file or folder** – and closes it, nicely or by force. One small window in the look of Windows 11.
 
 **[Download](https://github.com/Hemal1k/HeMiUnlocker/releases/latest)** · [Project page](https://hemal1k.github.io/hemiunlocker.html) · [Report a problem](https://github.com/Hemal1k/HeMiUnlocker/issues)
 
@@ -15,10 +15,11 @@ file or folder** – and closes it, nicely or by force. One small window in the 
 
 | File | For |
 |---|---|
-| `HeMiUnlocker-Setup.exe` | The installer – just for you (no administrator) or for all users (Program Files), with a Start menu entry and an uninstaller. |
-| `HeMiUnlocker-Portable.zip` | Just the program; run it from any folder. |
+| `HeMiUnlocker-Setup.exe` | The installer – just for you (no administrator) or for all users (Program Files), x64 or ARM64, with a Start menu entry and an uninstaller. |
+| `HeMiUnlocker-Portable.zip` | Just the program for x64; run it from any folder. |
+| `HeMiUnlocker-Portable-arm64.zip` | The same for Windows on ARM. |
 
-Windows 10 / 11, x64. Nothing else needs to be installed.
+Windows 10 / 11, x64 and ARM64. Nothing else needs to be installed.
 
 ## Features
 
@@ -35,6 +36,10 @@ Windows 10 / 11, x64. Nothing else needs to be installed.
   - **Unlock** – without the window: the programs are asked to close, what stays is ended (File Explorer restarted);
     when that needs administrator rights, HeMiUnlocker asks for them and tries again. A notification of Windows tells
     the result.
+  - **Take ownership** – the file or the folder with everything in it goes to the Administrators, with full control
+    (after the question of Windows); also in the window (the shield button).
+  - **Take ownership** – the file or the folder with everything in it goes to the Administrators, with full control
+    (after the question of Windows); also in the window (the shield button).
 
 ## Building
 
@@ -61,7 +66,7 @@ so it runs without the Visual C++ Redistributable).
 | `src\procs.rs` | Processes: program path, administrator rights, icon, closing and ending them. |
 | `src\shell_menu.rs` | The optional File Explorer submenu (`HKCU\Software\Classes`). |
 | `src\unlock.rs` | “Unlock” from the submenu: close or end the holders, again as administrator when needed, the notification. |
-| `src\theme.rs`, `src\i18n.rs` | The Windows 11 look in egui (light / dark, accent colour) and the English / Czech texts. |
+| `src\theme.rs`, `src\i18n.rs` | The Windows 11 look in egui (light / dark, accent colour) and the texts in two languages. |
 | `assets` | The icon and the notices of the components. |
 
 ## License

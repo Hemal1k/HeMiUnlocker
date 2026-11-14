@@ -19,11 +19,12 @@ fn exe() -> Option<String> {
     Some(std::env::current_exe().ok()?.display().to_string())
 }
 
-/// The two items of the submenu: key, text, command.
-fn items(exe: &str) -> [(&'static str, &'static str, String); 2] {
+/// The items of the submenu: key, text, command, and whether it needs administrator rights (the shield of UAC).
+fn items(exe: &str) -> [(&'static str, &'static str, String, bool); 3] {
     [
-        ("open", tr("Open in HeMiUnlocker", "Otevřít v HeMiUnlockeru"), format!("\"{exe}\" \"%1\"")),
-        ("unlock", tr("Unlock", "Odemknout"), format!("\"{exe}\" {} \"%1\"", crate::unlock::SWITCH)),
+        ("1open", tr("Open in HeMiUnlocker", "Otevřít v HeMiUnlockeru"), format!("\"{exe}\" \"%1\""), false),
+        ("2unlock", tr("Unlock", "Odemknout"), format!("\"{exe}\" {} \"%1\"", crate::unlock::SWITCH), false),
+        ("3ownership", tr("Take ownership", "Převzít vlastnictví"), format!("\"{exe}\" {} \"%1\"", crate::ownership::SWITCH), true),
     ]
 }
 fn read(key: &str, name: Option<&str>) -> Option<String> {
@@ -69,7 +70,7 @@ fn write_error(r: u32) -> String {
 
 /// On: the submenu, or the single item of older versions (it is rewritten by `repair`).
 pub fn is_on() -> bool {
-    read(&format!(r"{}\shell\open\command", ITEMS[0]), None).is_some() || read(&format!(r"{}\command", ITEMS[0]), None).is_some()
+    read(&format!(r"{}\shell\1open\command", ITEMS[0]), None).is_some() || read(&format!(r"{}\shell\open\command", ITEMS[0]), None).is_some() || read(&format!(r"{}\command", ITEMS[0]), None).is_some()
 }
 
 fn remove(key: &str) -> Result<(), String> {
@@ -92,10 +93,15 @@ pub fn set(on: bool) -> Result<(), String> {
             write(key, Some("MUIVerb"), TEXT)?;
             write(key, Some("Icon"), &icon)?;
             write(key, Some("SubCommands"), "")?;
-            for (name, text, cmd) in items(&exe) {
+            for (name, text, cmd, admin) in items(&exe) {
                 let sub = format!(r"{key}\shell\{name}");
                 write(&sub, Some("MUIVerb"), text)?;
-                write(&sub, Some("Icon"), &icon)?;
+                if admin {
+                    // the shield of UAC instead of the icon: it asks for administrator rights
+                    write(&sub, Some("HasLUAShield"), "")?;
+                } else {
+                    write(&sub, Some("Icon"), &icon)?;
+                }
                 write(&format!(r"{sub}\command"), None, &cmd)?;
             }
         }
@@ -112,7 +118,7 @@ pub fn repair() {
     }
     let stale = ITEMS.iter().any(|key| {
         read(key, Some("SubCommands")).is_none()
-            || items(&exe).iter().any(|(name, text, cmd)| {
+            || items(&exe).iter().any(|(name, text, cmd, _)| {
                 let sub = format!(r"{key}\shell\{name}");
                 read(&format!(r"{sub}\command"), None).as_deref() != Some(cmd.as_str()) || read(&sub, Some("MUIVerb")).as_deref() != Some(*text)
             })

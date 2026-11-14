@@ -221,7 +221,7 @@ fn shades(base: Color32) -> [Color32; 7] {
 pub fn read_source() -> Source {
     let hemidock = std::env::var("APPDATA")
         .ok()
-        .and_then(|d| std::fs::read_to_string(format!(r"{d}\HeMiDock\settings.json")).ok())
+        .and_then(|d| std::fs::read_to_string(format!(r"{d}\HeMi\HeMiDock\settings.json")).or_else(|_| std::fs::read_to_string(format!(r"{d}\HeMiDock\settings.json"))).ok())
         .unwrap_or_default();
     let theme_mode = setting(&hemidock, "ThemeMode").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
     let light = match theme_mode {

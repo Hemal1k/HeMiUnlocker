@@ -1,4 +1,4 @@
-﻿; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
+; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
 ; For the current user (no administrator) or for all users - the installer asks. Uninstalling removes the File Explorer item of the app as well.
 
 #ifndef AppVersion
@@ -6,6 +6,9 @@
 #endif
 #ifndef AppExe
   #define AppExe "..\build\release\HeMiUnlocker.exe"
+#endif
+#ifndef AppExeArm
+  #define AppExeArm ""
 #endif
 #ifndef OutputDir
   #define OutputDir "..\build\dist"
@@ -26,8 +29,8 @@ DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
 ; the first page asks: for me only (default, no administrator) or for all users (Program Files, asks for administrator)
 PrivilegesRequiredOverridesAllowed=dialog commandline
-ArchitecturesAllowed=x64compatible
-ArchitecturesInstallIn64BitMode=x64compatible
+ArchitecturesAllowed=x64compatible or arm64
+ArchitecturesInstallIn64BitMode=x64compatible or arm64
 MinVersion=10.0
 OutputDir={#OutputDir}
 OutputBaseFilename=HeMiUnlocker-Setup
@@ -45,7 +48,13 @@ LicenseFile=..\LICENSE
 Name: "en"; MessagesFile: "compiler:Default.isl"
 
 [Files]
+; x64, and the ARM64 program on Windows on ARM when the installer has it
+#if AppExeArm != ""
+Source: "{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion; Check: not IsArm64
+Source: "{#AppExeArm}"; DestDir: "{app}"; DestName: "HeMiUnlocker.exe"; Flags: ignoreversion; Check: IsArm64
+#else
 Source: "{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+#endif
 
 [Tasks]
 ; offered on its own page, off by default
@@ -66,4 +75,24 @@ Root: HKCU; Subkey: "Software\Classes\AppUserModelId\HeMi.HeMiUnlocker"; Flags: 
 
 [UninstallDelete]
 ; the icon of the notifications of "Unlock"
+Type: filesandordirs; Name: "{localappdata}\HeMi\HeMiUnlocker"
 Type: filesandordirs; Name: "{localappdata}\HeMiUnlocker"
+Type: dirifempty; Name: "{localappdata}\HeMi"
+
+[Code]
+// Uninstalling: the settings of the app (%AppData%\HeMi\HeMiUnlocker) are deleted or kept, as the user chooses (a quiet
+// uninstall keeps them). %AppData%\HeMi goes too when no other HeMi app has anything there.
+procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
+var
+  Dir: String;
+begin
+  if CurUninstallStep <> usPostUninstall then Exit;
+  Dir := ExpandConstant('{userappdata}\HeMi\HeMiUnlocker');
+  if not DirExists(Dir) then Exit;
+  if UninstallSilent then Exit;
+  if MsgBox('Delete the settings of HeMiUnlocker too?' + #13#10#13#10 + 'Keep them to use them again when you install HeMiUnlocker later.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+  begin
+    DelTree(Dir, True, True, True);
+    RemoveDir(ExpandConstant('{userappdata}\HeMi'));
+  end;
+end;
