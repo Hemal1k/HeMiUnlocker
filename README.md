@@ -9,7 +9,7 @@ file or folder** – and closes it, nicely or by force. One small window in the 
 
 ![HeMiUnlocker](.github/screenshot.png)
 
-> Not signed yet – Windows SmartScreen may warn the first time (More info → Run anyway).
+> The downloads are not code-signed, so Windows SmartScreen may warn the first time (More info → Run anyway). Each release has `SHA256SUMS.txt` to check them.
 
 ## Download
 
@@ -29,8 +29,12 @@ Windows 10 / 11, x64. Nothing else needs to be installed.
   confirmation (the start time of the process is checked first, so a reused process ID is never hit).
 - **File Explorer** gets **Restart** instead; protected system processes cannot be ended.
 - **Run as administrator** restarts HeMiUnlocker elevated with the same files (for programs running as administrator).
-- **File Explorer item** “HeMiUnlock” for files and folders – a switch in the window, off by default, written only for the
-  current user.
+- **File Explorer submenu** “HeMiUnlocker” for files and folders – a switch in the window, off by default, written only
+  for the current user:
+  - **Open in HeMiUnlocker** – the window with the file.
+  - **Unlock** – without the window: the programs are asked to close, what stays is ended (File Explorer restarted);
+    when that needs administrator rights, HeMiUnlocker asks for them and tries again. A notification of Windows tells
+    the result.
 
 ## Building
 
@@ -55,7 +59,8 @@ so it runs without the Visual C++ Redistributable).
 | `src\app.rs` | The window: the chosen file, the programs that hold it and what can be done with them. |
 | `src\locks.rs` | Which processes hold a file – the Restart Manager of Windows. |
 | `src\procs.rs` | Processes: program path, administrator rights, icon, closing and ending them. |
-| `src\shell_menu.rs` | The optional File Explorer item (`HKCU\Software\Classes`). |
+| `src\shell_menu.rs` | The optional File Explorer submenu (`HKCU\Software\Classes`). |
+| `src\unlock.rs` | “Unlock” from the submenu: close or end the holders, again as administrator when needed, the notification. |
 | `src\theme.rs`, `src\i18n.rs` | The Windows 11 look in egui (light / dark, accent colour) and the English / Czech texts. |
 | `assets` | The icon and the notices of the components. |
 

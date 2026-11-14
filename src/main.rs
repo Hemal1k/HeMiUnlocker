@@ -7,11 +7,22 @@ mod locks;
 mod procs;
 mod shell_menu;
 mod theme;
+mod unlock;
 
 use eframe::egui;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
+    // "Unlock" from the File Explorer menu: no window, only a notification at the end
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().map(String::as_str) == Some(unlock::SWITCH) {
+        let (paths, elevated) = unlock::args(&args[1..]);
+        if !paths.is_empty() {
+            unlock::run(paths, elevated);
+        }
+        return Ok(());
+    }
+
     // files / folders given on the command line (also the way a context-menu item will start it)
     let paths: Vec<PathBuf> = std::env::args_os()
         .skip(1)

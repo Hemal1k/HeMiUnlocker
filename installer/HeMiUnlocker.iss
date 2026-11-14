@@ -62,3 +62,8 @@ Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker
 ; the File Explorer item the app writes when it is switched on: removed with the app
 Root: HKCU; Subkey: "Software\Classes\*\shell\HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\AppUserModelId\HeMi.HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
+
+[UninstallDelete]
+; the icon of the notifications of "Unlock"
+Type: filesandordirs; Name: "{localappdata}\HeMiUnlocker"

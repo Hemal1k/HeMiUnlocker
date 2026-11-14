@@ -666,10 +666,10 @@ impl HeMiUnlockerApp {
         ui.horizontal(|ui| {
             ui.set_min_height(32.0);
             let tip = tr(
-                "Adds “HeMiUnlock” to the right-click menu of files and folders. \
-                 In Windows 11 it is under “Show more options”.",
-                "Přidá položku „HeMiUnlock“ do nabídky po kliknutí pravým tlačítkem na soubor nebo složku. \
-                 Ve Windows 11 je pod „Zobrazit další možnosti“.",
+                "Adds the submenu “HeMiUnlocker” to the right-click menu of files and folders: Open in HeMiUnlocker, and Unlock \
+                 (frees the file at once and tells the result in a notification). In Windows 11 it is under “Show more options”.",
+                "Přidá podnabídku „HeMiUnlocker“ do nabídky po kliknutí pravým tlačítkem na soubor nebo složku: Otevřít v HeMiUnlockeru \
+                 a Odemknout (soubor hned uvolní a výsledek ukáže v oznámení). Ve Windows 11 je pod „Zobrazit další možnosti“.",
             );
             if toggle(ui, &p, self.menu_on).on_hover_text(tip).clicked() {
                 acts.push(Action::ToggleMenu);
