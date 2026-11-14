@@ -30,7 +30,7 @@ Windows 10 / 11, x64 and ARM64. Nothing else needs to be installed.
   confirmation (the start time of the process is checked first, so a reused process ID is never hit).
 - **File Explorer** gets **Restart** instead; protected system processes cannot be ended.
 - **Run as administrator** restarts HeMiUnlocker elevated with the same files (for programs running as administrator).
-- **File Explorer submenu** “HeMiUnlocker” for files and folders – a switch in the window, off by default, written only
+- **File Explorer submenu** “HeMiUnlocker” for files and folders – a switch in Settings (the gear), off by default, written only
   for the current user:
   - **Open in HeMiUnlocker** – the window with the file.
   - **Unlock** – without the window: the programs are asked to close, what stays is ended (File Explorer restarted);

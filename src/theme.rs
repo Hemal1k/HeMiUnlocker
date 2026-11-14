@@ -33,6 +33,7 @@ pub fn icon(size: f32) -> FontId {
 
 /// Segoe Fluent Icons glyphs.
 pub mod glyph {
+    pub const SETTINGS: char = '\u{E713}';
     pub const DOCUMENT: char = '\u{E8A5}';
     pub const FOLDER: char = '\u{E8B7}';
     pub const OPEN_FOLDER: char = '\u{E838}';
@@ -42,7 +43,6 @@ pub mod glyph {
     pub const LIGHTNING: char = '\u{E945}';
     pub const SHIELD: char = '\u{EA18}';
     pub const COMPLETED: char = '\u{E930}';
-    pub const INFO: char = '\u{E946}';
     pub const BACK: char = '\u{E72B}';
     pub const WARNING: char = '\u{E7BA}';
     pub const ERROR: char = '\u{EA39}';
