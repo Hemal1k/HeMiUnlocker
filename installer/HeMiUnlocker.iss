@@ -18,7 +18,7 @@
 AppId=HeMiUnlocker
 AppName=HeMiUnlocker
 AppVersion={#AppVersion}
-AppVerName=HeMiUnlocker Beta {#AppVersion}
+AppVerName=HeMiUnlocker {#AppVersion}
 AppPublisher=Richard Hemala
 AppPublisherURL=https://github.com/Hemal1k/HeMiUnlocker
 AppSupportURL=https://github.com/Hemal1k/HeMiUnlocker/issues
