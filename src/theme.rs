@@ -33,6 +33,7 @@ pub fn icon(size: f32) -> FontId {
 
 /// Segoe Fluent Icons glyphs.
 pub mod glyph {
+    pub const CHEVRON_DOWN: char = '\u{E70D}';
     pub const SETTINGS: char = '\u{E713}';
     pub const DOCUMENT: char = '\u{E8A5}';
     pub const FOLDER: char = '\u{E8B7}';
@@ -218,12 +219,23 @@ fn shades(base: Color32) -> [Color32; 7] {
     [mix(base, w, 0.72), mix(base, w, 0.5), mix(base, w, 0.25), base, mix(base, b, 0.2), mix(base, b, 0.4), mix(base, b, 0.6)]
 }
 
-pub fn read_source() -> Source {
+/// `mode`: the theme chosen in the app (0 automatic – HeMiDock, else Windows; 1 light; 2 dark).
+pub fn read_source(mode: u8) -> Source {
     let hemidock = std::env::var("APPDATA")
         .ok()
         .and_then(|d| std::fs::read_to_string(format!(r"{d}\HeMi\HeMiDock\settings.json")).or_else(|_| std::fs::read_to_string(format!(r"{d}\HeMiDock\settings.json"))).ok())
         .unwrap_or_default();
     let theme_mode = setting(&hemidock, "ThemeMode").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
+    let theme_mode = match mode {
+        1 | 2 => mode as i32,
+        _ => theme_mode,
+    };
+    // Debug builds only: HEMI_THEME=light / dark for screenshots, without changing Windows
+    let theme_mode = match std::env::var("HEMI_THEME").ok().filter(|_| cfg!(debug_assertions)).as_deref() {
+        Some("light") => 1,
+        Some("dark") => 2,
+        _ => theme_mode,
+    };
     let light = match theme_mode {
         1 => true,
         2 => false,

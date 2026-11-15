@@ -4,6 +4,7 @@
 mod app;
 mod i18n;
 mod launcher;
+mod look;
 mod locks;
 mod ownership;
 mod procs;

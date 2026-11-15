@@ -1,7 +1,7 @@
 //! The window of HeMiUnlocker: the chosen file, the programs that hold it and what can be done with them.
 //! Laid out like the settings of HeMiDock: a large title, small semibold section headers, cards with a frame.
 
-use crate::i18n::{self, tr};
+use crate::i18n::tr;
 use crate::locks::{self, AppKind, Locker, Scan};
 use crate::procs::{self, Elevation};
 use crate::theme::{self, Palette, glyph};
@@ -97,6 +97,8 @@ enum Confirm {
 }
 
 enum Action {
+    /// The theme or the language changed.
+    SetLook(crate::look::Look),
     PickFiles,
     PickFolder,
     Rescan,
@@ -133,6 +135,8 @@ pub struct HeMiUnlockerApp {
     toast: Option<Toast>,
     admin: bool,
     hwnd: isize,
+    /// The theme and the language chosen in the settings.
+    look: crate::look::Look,
     focused: bool,
     menu_on: bool,
     about: bool,
@@ -140,7 +144,9 @@ pub struct HeMiUnlockerApp {
 
 impl HeMiUnlockerApp {
     pub fn new(cc: &eframe::CreationContext<'_>, targets: Vec<PathBuf>) -> Self {
-        let source = theme::read_source();
+        let look = crate::look::Look::load();
+        crate::i18n::set(look.language);
+        let source = theme::read_source(look.theme);
         let p = theme::palette(&source);
         theme::install_fonts(&cc.egui_ctx);
         theme::apply(&cc.egui_ctx, &p);
@@ -167,6 +173,7 @@ impl HeMiUnlockerApp {
             toast: None,
             admin: procs::self_elevated(),
             hwnd,
+            look,
             focused: true,
             menu_on: crate::shell_menu::is_on(),
             about: false,
@@ -297,7 +304,7 @@ impl HeMiUnlockerApp {
             return;
         }
         self.theme_checked = Instant::now();
-        let source = theme::read_source();
+        let source = theme::read_source(self.look.theme);
         if source != self.source {
             self.source = source;
             self.p = theme::palette(&source);
@@ -359,18 +366,33 @@ impl HeMiUnlockerApp {
     fn about_page(&self, ui: &mut egui::Ui, acts: &mut Vec<Action>) {
         let p = self.p;
         // what is set once (the switch was at the bottom of the window): the item in the menu of File Explorer
-        section(ui, &p, tr("File Explorer", "Průzkumník"));
-        card(ui, &p, |ui| {
-            ui.horizontal(|ui| {
-                ui.set_min_height(52.0);
-                let w = ui.available_width() - 150.0;
-                ui.vertical(|ui| {
-                    ui.set_max_width(w);
-                    ui.spacing_mut().item_spacing.y = 2.0;
-                    ui.label(RichText::new(tr("Context menu", "Kontextová nabídka")).size(14.0).color(p.text));
-                    let detail = tr("The submenu “HeMiUnlocker” for files and folders: Open, Unlock, Take ownership (in Windows 11 under “Show more options”).", "Podnabídka „HeMiUnlocker“ u souborů a složek: Otevřít, Odemknout, Převzít vlastnictví (ve Windows 11 pod „Zobrazit další možnosti“).");
-                    ui.add(egui::Label::new(RichText::new(detail).size(12.0).color(p.text2)).wrap());
+        // the same at the top of every HeMi app: theme and language
+        section(ui, &p, tr("Appearance", "Vzhled"));
+        for (title, current, items, which) in [
+            (tr("Theme", "Motiv"), self.look.theme, [tr("Automatic", "Automaticky"), tr("Light", "Světlý"), tr("Dark", "Tmavý")], 0),
+            (tr("Language", "Jazyk"), self.look.language, [tr("Automatic", "Automaticky"), "English", "Čeština"], 1),
+        ] {
+            card(ui, &p, |ui| {
+                row_layout(ui, 44.0, |ui| {
+                    ui.label(RichText::new(title).size(14.0).color(p.text));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        if let Some(i) = dropdown(ui, &p, current as usize, &items, 220.0) {
+                            let mut l = self.look;
+                            if which == 0 {
+                                l.theme = i as u8;
+                            } else {
+                                l.language = i as u8;
+                            }
+                            acts.push(Action::SetLook(l));
+                        }
+                    });
                 });
+            });
+        }
+        ui.add_space(14.0);        section(ui, &p, tr("File Explorer", "Průzkumník"));
+        card(ui, &p, |ui| {
+            row_layout(ui, 44.0, |ui| {
+                ui.label(RichText::new(tr("Context menu", "Kontextová nabídka")).size(14.0).color(p.text));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(RichText::new(if self.menu_on { tr("On", "Zapnuto") } else { tr("Off", "Vypnuto") }).size(14.0).color(p.text));
                     if toggle(ui, &p, self.menu_on).clicked() {
@@ -378,8 +400,7 @@ impl HeMiUnlockerApp {
                     }
                 });
             });
-        });
-        ui.add_space(14.0);
+        });        ui.add_space(14.0);
         section(ui, &p, tr("About", "O aplikaci"));        ui.spacing_mut().item_spacing.y = 4.0;
         let value = |ui: &mut egui::Ui, label: &str, value: &str| {
             card(ui, &p, |ui| {
@@ -393,7 +414,6 @@ impl HeMiUnlockerApp {
         };
         value(ui, tr("Author", "Autor"), "Richard Hemala");
         value(ui, tr("Version", "Verze"), &format!("Beta {}", env!("CARGO_PKG_VERSION")));
-        value(ui, tr("Build date", "Datum sestavení"), &i18n::build_date());
         // the links side by side in one card (they wrap when the window is narrow)
         let mut links: Vec<(&str, &str, Action)> = vec![
             (tr("Project on GitHub", "Projekt na GitHubu"), PROJECT, Action::Open(format!("https://{PROJECT}"))),
@@ -803,6 +823,13 @@ impl HeMiUnlockerApp {
     fn act(&mut self, ctx: &egui::Context, acts: Vec<Action>) {
         for a in acts {
             match a {
+                Action::SetLook(l) => {
+                    l.save();
+                    crate::i18n::set(l.language);
+                    self.look = l;
+                    // the new colours at once, not after the next look at the theme
+                    self.theme_checked = Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
+                }
                 Action::PickFiles | Action::PickFolder => {
                     if let Some(t) = self.pick(matches!(a, Action::PickFolder)) {
                         if !t.is_empty() {
@@ -1193,4 +1220,45 @@ fn button_row(ui: &mut egui::Ui, p: &Palette, items: &[(&str, &str)]) -> Option<
         }
     }
     clicked
+}
+
+/// A ComboBox of WinUI: a standard button with the chosen text and a chevron; the list opens below it.
+/// Returns the index chosen this frame.
+fn dropdown(ui: &mut egui::Ui, p: &Palette, current: usize, items: &[&str], width: f32) -> Option<usize> {
+    let text = items.get(current).copied().unwrap_or("");
+    let (rect, resp) = ui.allocate_exact_size(vec2(width, 32.0), Sense::click());
+    let (down, hover) = (resp.is_pointer_button_down_on(), resp.hovered());
+    let painter = ui.painter();
+    painter.rect_filled(rect, CONTROL_RADIUS, if down { p.control_pressed } else if hover { p.control_hover } else { p.control });
+    painter.rect_stroke(rect, CONTROL_RADIUS, Stroke::new(1.0, p.control_stroke), StrokeKind::Inside);
+    let r = CONTROL_RADIUS as f32;
+    painter.hline(rect.left() + r - 1.0..=rect.right() - r + 1.0, rect.bottom() - 0.5, Stroke::new(1.0, p.control_stroke_bottom));
+    let label = painter.layout(text.to_string(), theme::body(14.0), p.text, width - 48.0);
+    painter.galley(pos2(rect.left() + 12.0, rect.center().y - label.size().y / 2.0), label, p.text);
+    painter.text(pos2(rect.right() - 16.0, rect.center().y), Align2::CENTER_CENTER, glyph::CHEVRON_DOWN, theme::icon(12.0), p.text2);
+    if hover {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Default);
+    }
+    let mut chosen = None;
+    egui::Popup::menu(&resp).width(width).show(|ui| {
+        ui.set_min_width(width - 12.0);
+        for (i, item) in items.iter().enumerate() {
+            let on = i == current;
+            let (r, row) = ui.allocate_exact_size(vec2(ui.available_width(), 34.0), Sense::click());
+            let painter = ui.painter();
+            if row.hovered() || on {
+                painter.rect_filled(r, 4, if row.hovered() { p.subtle_hover } else { p.subtle_pressed });
+            }
+            if on {
+                let bar = egui::Rect::from_center_size(pos2(r.left() + 2.0, r.center().y), vec2(3.0, 16.0));
+                painter.rect_filled(bar, 2, p.accent);
+            }
+            painter.text(pos2(r.left() + 14.0, r.center().y), Align2::LEFT_CENTER, *item, theme::body(14.0), p.text);
+            if row.clicked() {
+                chosen = Some(i);
+                ui.close();
+            }
+        }
+    });
+    chosen
 }

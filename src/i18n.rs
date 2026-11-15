@@ -3,8 +3,20 @@
 use std::sync::OnceLock;
 use windows_sys::Win32::Globalization::GetUserDefaultUILanguage;
 
-/// True when Windows shows its texts in Czech (primary language 0x05).
+/// The language chosen in the settings: 0 = as Windows, 1 = English, 2 = Czech.
+static CHOICE: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(0);
+
+pub fn set(choice: u8) {
+    CHOICE.store(choice.min(2), std::sync::atomic::Ordering::Relaxed);
+}
+
+/// True when the app speaks Czech: chosen in the settings, else as the display language of Windows (primary language 0x05).
 pub fn cz() -> bool {
+    match CHOICE.load(std::sync::atomic::Ordering::Relaxed) {
+        1 => return false,
+        2 => return true,
+        _ => {}
+    }
     static CZ: OnceLock<bool> = OnceLock::new();
     *CZ.get_or_init(|| {
         // Debug builds only: HEMIUNLOCKER_LANG=en / cs to test the other language on this PC
@@ -24,16 +36,3 @@ pub fn tr<'a>(en: &'a str, cs: &'a str) -> &'a str {
     if cz() { cs } else { en }
 }
 
-/// The build date (YYYY-MM-DD from build.rs) as Czech or English write it.
-pub fn build_date() -> String {
-    let iso = env!("HEMIUNLOCKER_BUILD_DATE");
-    let mut parts = iso.split('-');
-    let (Some(y), Some(m), Some(d)) = (parts.next(), parts.next(), parts.next()) else { return iso.into() };
-    if cz() {
-        format!("{d}.{m}.{y}")
-    } else {
-        const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-        let month = m.parse::<usize>().ok().and_then(|m| MONTHS.get(m.wrapping_sub(1))).copied().unwrap_or(m);
-        format!("{} {month} {y}", d.trim_start_matches('0'))
-    }
-}
