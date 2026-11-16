@@ -1,4 +1,4 @@
-# HeMiUnlocker
+# <img src="assets/HeMiUnlocker.png" width="40" height="40" alt=""> HeMiUnlocker
 
 [![Latest release](https://img.shields.io/github/v/release/Hemal1k/HeMiUnlocker?label=release)](https://github.com/Hemal1k/HeMiUnlocker/releases/latest) [![Downloads](https://img.shields.io/github/downloads/Hemal1k/HeMiUnlocker/total)](https://github.com/Hemal1k/HeMiUnlocker/releases) [![License: MIT](https://img.shields.io/github/license/Hemal1k/HeMiUnlocker)](LICENSE) ![Windows 10 / 11](https://img.shields.io/badge/Windows-10%20%2F%2011-0078D4)
 
