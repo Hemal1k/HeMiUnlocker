@@ -344,7 +344,7 @@ impl HeMiUnlockerApp {
         ui.horizontal(|ui| {
             ui.set_min_height(40.0);
             if self.about {
-                if Btn::new("").icon(glyph::BACK).subtle().tip(tr("Back", "Zpět")).show(ui, &p).clicked() {
+                if Btn::new("").icon(glyph::BACK).subtle().show(ui, &p).clicked() {
                     acts.push(Action::About(false));
                 }
                 ui.add_space(4.0);
@@ -353,7 +353,7 @@ impl HeMiUnlockerApp {
             ui.label(RichText::new(title).font(theme::display(28.0)).color(p.text));
             if !self.about {
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    if Btn::new("").icon(glyph::SETTINGS).subtle().tip(tr("Settings", "Nastavení")).show(ui, &p).clicked() {
+                    if Btn::new("").icon(glyph::SETTINGS).subtle().show(ui, &p).clicked() {
                         acts.push(Action::About(true));
                     }
                 });

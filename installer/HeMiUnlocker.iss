@@ -72,6 +72,12 @@ Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker
 Root: HKCU; Subkey: "Software\Classes\*\shell\HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\Directory\shell\HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
 Root: HKCU; Subkey: "Software\Classes\AppUserModelId\HeMi.HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
+; what Windows itself keeps about the app (its name in menus, "Open with", the settings of its notifications)
+Root: HKCU; Subkey: "Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"; ValueType: none; ValueName: "{app}\HeMiUnlocker.exe.FriendlyAppName"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\Local Settings\Software\Microsoft\Windows\Shell\MuiCache"; ValueType: none; ValueName: "{app}\HeMiUnlocker.exe.ApplicationCompany"; Flags: uninsdeletevalue dontcreatekey
+Root: HKCU; Subkey: "Software\Classes\Applications\HeMiUnlocker.exe"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Notifications\Settings\HeMi.HeMiUnlocker"; Flags: uninsdeletekey dontcreatekey
+Root: HKCU; Subkey: "Software\HeMi"; Flags: uninsdeletekeyifempty dontcreatekey
 
 [UninstallDelete]
 ; the icon of the notifications of "Unlock"
