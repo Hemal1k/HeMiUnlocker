@@ -1,4 +1,4 @@
-; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
+﻿; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
 ; For the current user (no administrator) or for all users - the installer asks. Uninstalling removes the File Explorer item of the app as well.
 
 #ifndef AppVersion
@@ -23,7 +23,8 @@ AppPublisher=Richard Hemala
 AppPublisherURL=https://github.com/Hemal1k/HeMiUnlocker
 AppSupportURL=https://github.com/Hemal1k/HeMiUnlocker/issues
 AppUpdatesURL=https://github.com/Hemal1k/HeMiUnlocker/releases
-DefaultDirName={autopf}\HeMiUnlocker
+DefaultDirName={autopf}\HeMi\HeMiUnlocker
+UsePreviousAppDir=no
 DisableDirPage=yes
 DisableProgramGroupPage=yes
 PrivilegesRequired=lowest
@@ -65,6 +66,8 @@ Name: "{autoprograms}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"
 Name: "{autodesktop}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"; Tasks: desktopicon
 
 [Run]
+; the File Explorer items and the start with Windows point to this installation (also after a move from the old folder)
+Filename: "{app}\HeMiUnlocker.exe"; Parameters: "--repair"; Flags: runasoriginaluser waituntilterminated runhidden
 Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker}"; Flags: nowait postinstall skipifsilent runasoriginaluser
 
 [Registry]
@@ -86,6 +89,52 @@ Type: filesandordirs; Name: "{localappdata}\HeMiUnlocker"
 Type: dirifempty; Name: "{localappdata}\HeMi"
 
 [Code]
+// Since 2026-11 the HeMi apps go into one folder HeMi, as their settings do (%AppData%\HeMi\<app>): {autopf}\HeMi\HeMiUnlocker.
+// An installation in the old folder {autopf}\HeMiUnlocker moves: the app running from there ends, the new version goes into the
+// new folder ("--repair" points the File Explorer items and the start with Windows to it) and the old folder is deleted.
+var
+  OldFolder: String;
+
+function FindOldFolder: String;
+begin
+  if RegQueryStringValue(HKA, 'Software\Microsoft\Windows\CurrentVersion\Uninstall\HeMiUnlocker_is1', 'InstallLocation', Result) then
+  begin
+    Result := RemoveBackslashUnlessRoot(Result);
+    if (CompareText(Result, ExpandConstant('{app}')) = 0) or (CompareText(ExtractFileName(Result), 'HeMiUnlocker') <> 0)
+      or not FileExists(Result + '\HeMiUnlocker.exe') then
+      Result := '';
+  end
+  else
+    Result := '';
+end;
+
+procedure StopOld;
+var
+  Code: Integer;
+begin
+  OldFolder := FindOldFolder;
+  if OldFolder = '' then Exit;
+  Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+    '-NoProfile -NonInteractive -Command "Get-Process | Where-Object { $_.Path -like ''' + OldFolder + '\*'' } | Stop-Process -Force"',
+    '', SW_HIDE, ewWaitUntilTerminated, Code);
+end;
+
+procedure DeleteOld;
+begin
+  if OldFolder <> '' then DelTree(OldFolder, True, True, True);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+begin
+  Result := '';
+  StopOld;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  if CurStep = ssPostInstall then DeleteOld;
+end;
+
 // Uninstalling: the settings of the app (%AppData%\HeMi\HeMiUnlocker) are deleted or kept, as the user chooses (a quiet
 // uninstall keeps them). %AppData%\HeMi goes too when no other HeMi app has anything there.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);

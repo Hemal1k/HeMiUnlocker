@@ -16,6 +16,11 @@ use eframe::egui;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
+    // the installer after an installation or a move to another folder: the File Explorer item points to this exe
+    if std::env::args().nth(1).as_deref() == Some("--repair") {
+        shell_menu::repair();
+        return Ok(());
+    }
     // "Unlock" from the File Explorer menu: no window, only a notification at the end
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some(unlock::SWITCH) {
