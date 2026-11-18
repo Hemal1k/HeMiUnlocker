@@ -21,6 +21,11 @@ fn main() -> eframe::Result {
         shell_menu::repair();
         return Ok(());
     }
+    // the installer, "File Explorer menu only": the items switched on (there is no window in Start to do it)
+    if std::env::args().nth(1).as_deref() == Some("--menu-on") {
+        let _ = shell_menu::set(true);
+        return Ok(());
+    }
     // "Unlock" from the File Explorer menu: no window, only a notification at the end
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().map(String::as_str) == Some(unlock::SWITCH) {

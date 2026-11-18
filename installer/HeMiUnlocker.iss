@@ -60,18 +60,29 @@ Source: "{#AppExeArm}"; DestDir: "{app}"; DestName: "HeMiUnlocker.exe"; Flags: i
 Source: "{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 #endif
 
+; full, or only the items in the File Explorer menu (the user, 2026-11-19): the same one exe (it does the work of the
+; menu), but no window in Start, no desktop icon, nothing opened at the end – the menu items are switched on instead
+[Types]
+Name: "full"; Description: "Full – the window and the File Explorer menu"
+Name: "menu"; Description: "Minimal – only the items in the File Explorer menu"
+
+[Components]
+Name: "window"; Description: "The window of HeMiUnlocker in Start"; Types: full
+
 [Tasks]
 ; offered on its own page, off by default
-Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked
+Name: "desktopicon"; Description: "{cm:CreateDesktopIcon}"; GroupDescription: "{cm:AdditionalIcons}"; Flags: unchecked; Components: window
 
 [Icons]
-Name: "{autoprograms}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"
+Name: "{autoprograms}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"; Components: window
 Name: "{autodesktop}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"; Tasks: desktopicon
 
 [Run]
 ; the File Explorer items and the start with Windows point to this installation (also after a move from the old folder)
 Filename: "{app}\HeMiUnlocker.exe"; Parameters: "--repair"; Flags: runasoriginaluser waituntilterminated runhidden
-Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker}"; Flags: nowait postinstall skipifsilent runasoriginaluser
+; minimal: the menu items on (the window, where they are switched, is not offered)
+Filename: "{app}\HeMiUnlocker.exe"; Parameters: "--menu-on"; Flags: runasoriginaluser waituntilterminated runhidden; Check: not WizardIsComponentSelected('window')
+Filename: "{app}\HeMiUnlocker.exe"; Description: "{cm:LaunchProgram,HeMiUnlocker}"; Flags: nowait postinstall skipifsilent runasoriginaluser; Components: window
 
 [Registry]
 ; the File Explorer item the app writes when it is switched on: removed with the app
