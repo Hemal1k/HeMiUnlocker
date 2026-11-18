@@ -1,6 +1,6 @@
 [package]
 name = "hemiunlocker"
-version = "1.4.1"
+version = "1.4.2"
 edition = "2024"
 description = "HeMiUnlocker – which process holds a locked file"
 authors = ["Richard Hemala"]
