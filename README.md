@@ -16,8 +16,8 @@ file or folder** – and closes it, nicely or by force. One small window in the 
 | File | For |
 |---|---|
 | `HeMiUnlocker-Setup.exe` | The installer – just for you (no administrator) or for all users (Program Files), x64 or ARM64, with a Start menu entry and an uninstaller. |
-| `HeMiUnlocker-Portable.zip` | Just the program for x64; run it from any folder. |
-| `HeMiUnlocker-Portable-arm64.zip` | The same for Windows on ARM. |
+| `HeMiUnlocker-Portable.exe` | Just the program for x64; run it from any folder. |
+| `HeMiUnlocker-Portable-arm64.exe` | The same for Windows on ARM. |
 
 Windows 10 / 11, x64 and ARM64. Nothing else needs to be installed.
 
