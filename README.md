@@ -15,7 +15,7 @@ file or folder** – and closes it, nicely or by force. One small window in the 
 
 | File | For |
 |---|---|
-| `HeMiUnlocker-Setup.exe` | The installer – just for you (no administrator) or for all users (Program Files), x64 or ARM64, with a Start menu entry and an uninstaller. |
+| `HeMiUnlocker-Setup.exe` | The installer – just for you (no administrator) or for all users (Program Files), x64 or ARM64, with a Start menu entry and an uninstaller. A minimal installation gives only the items in the File Explorer menu, without the window in Start. |
 | `HeMiUnlocker-Portable.exe` | Just the program for x64; run it from any folder. |
 | `HeMiUnlocker-Portable-arm64.exe` | The same for Windows on ARM. |
 
@@ -53,7 +53,7 @@ The exe is `build\release\HeMiUnlocker.exe` (`.cargo\config.toml` sets the build
 so it runs without the Visual C++ Redistributable).
 
 `release.ps1` builds the downloads into `build\dist` (needs [Inno Setup 6](https://jrsoftware.org/isinfo.php)): the installer
-(`installer\HeMiUnlocker.iss`) and the portable zip. A release published on GitHub runs the same script in
+(`installer\HeMiUnlocker.iss`) and the portable exe. A release published on GitHub runs the same script in
 `.github\workflows\release.yml` and gets the files attached.
 
 ## Project
