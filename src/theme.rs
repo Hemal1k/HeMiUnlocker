@@ -1,5 +1,5 @@
-//! The look of HeMiDock (WinUI 3 / Fluent) in egui: the colours of the Windows 11 theme, the accent colour,
-//! Segoe UI Variable and Segoe Fluent Icons, the title bar in the colour of the window.
+//! The look of HeMiDock (WinUI 3 / Fluent) in egui: the colors of the Windows 11 theme, the accent color,
+//! Segoe UI Variable and Segoe Fluent Icons, the title bar in the color of the window.
 //!
 //! Light / dark and the accent: the own setting of the app, else Windows (no longer the settings of HeMiDock – they
 //! changed every HeMi app at once).
@@ -52,9 +52,10 @@ pub mod glyph {
     pub const CONSOLE: char = '\u{E756}';
     pub const UNLOCK: char = '\u{E785}';
     pub const RESTART: char = '\u{E777}';
+    pub const UNDO: char = '\u{E7A7}';
 }
 
-/// Everything the colours depend on; read again every few seconds and compared.
+/// Everything the colors depend on; read again every few seconds and compared.
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Source {
     pub light: bool,
@@ -180,7 +181,7 @@ pub fn palette(s: &Source) -> Palette {
     }
 }
 
-// ---------------------------------------------------------------- where the colours come from
+// ---------------------------------------------------------------- where the colors come from
 
 fn reg_dword(key: &str, value: &str) -> Option<u32> {
     let (k, v) = (crate::procs::wide(key), crate::procs::wide(value));
@@ -222,7 +223,7 @@ fn shades(base: Color32) -> [Color32; 7] {
 /// `mode`: the theme chosen in the app (0 automatic – HeMiDock, else Windows; 1 light; 2 dark).
 pub fn read_source(mode: u8) -> Source {
     // each app has its own look (the user, 2026-11-19: the theme of HeMiDock changed HeMi Launcher too): the settings of
-    // HeMiDock are not read any more – "as Windows" is the light / dark mode and the accent colour of Windows
+    // HeMiDock are not read any more – "as Windows" is the light / dark mode and the accent color of Windows
     let hemidock = String::new();
     let theme_mode = setting(&hemidock, "ThemeMode").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
     let theme_mode = match mode {
@@ -366,7 +367,7 @@ fn colorref(c: Color32) -> u32 {
     c.r() as u32 | (c.g() as u32) << 8 | (c.b() as u32) << 16
 }
 
-/// The title bar of Windows in the colours of the window (as WinUI with its own title bar).
+/// The title bar of Windows in the colors of the window (as WinUI with its own title bar).
 pub fn style_window(hwnd: isize, p: &Palette) {
     if hwnd == 0 {
         return;

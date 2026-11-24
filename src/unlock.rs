@@ -1,9 +1,10 @@
 //! "Unlock" from the File Explorer menu, without the window: the programs that hold the file are asked to close
 //! (so they can still save), what does not close within a few seconds is ended; File Explorer is restarted.
+//! Services, the processes of the system and the critical ones are never ended from here (the notification names them).
 //! What cannot be ended without administrator rights: HeMiUnlocker starts again as administrator (Windows asks)
 //! and tries once more. At the end a notification of Windows says whether the file is free.
 
-use crate::i18n::tr;
+use crate::i18n::{count, tr};
 use crate::locks::{self, AppKind};
 use crate::procs::{self, wide};
 use std::path::{Path, PathBuf};
@@ -33,39 +34,52 @@ enum Outcome {
 }
 
 pub fn run(targets: Vec<PathBuf>, elevated: bool) {
-    let outcome = unlock(&targets);
-    // still held and not yet administrator: once more as administrator (it notifies itself)
-    if matches!(outcome, Outcome::Held(_) | Outcome::Unknown) && !elevated && !procs::self_elevated() && relaunch_elevated(SWITCH, &targets) {
+    let (outcome, spared) = unlock(&targets);
+    // still held (not only by what is spared) and not yet administrator: once more as administrator (it notifies itself)
+    let only_spared = matches!(&outcome, Outcome::Held(names) if names.iter().all(|n| spared.contains(n)));
+    if matches!(outcome, Outcome::Held(_) | Outcome::Unknown) && !only_spared && !elevated && !procs::self_elevated() && relaunch_elevated(SWITCH, &targets) {
         return;
     }
-    notify(&targets, outcome);
+    notify(&targets, outcome, &spared);
 }
 
-fn unlock(targets: &[PathBuf]) -> Outcome {
+/// The name shown for a holder.
+fn shown_name(l: &locks::Locker) -> String {
+    if l.name.trim().is_empty() { format!("PID {}", l.pid) } else { l.name.clone() }
+}
+
+/// What the menu item does not end without asking: services, the processes of the system and the critical ones.
+fn spared(l: &locks::Locker, exe: Option<&str>) -> bool {
+    matches!(l.kind, AppKind::Critical | AppKind::Service) || procs::is_service(l.pid, exe) || procs::is_protected(l.pid, exe)
+}
+
+/// The outcome and the names of the holders left running because they are services or of the system.
+fn unlock(targets: &[PathBuf]) -> (Outcome, Vec<String>) {
     let scan = locks::scan(targets);
     if let Some(e) = scan.error {
-        return Outcome::Failed(e);
+        return (Outcome::Failed(e), Vec::new());
     }
     if scan.lockers.is_empty() {
-        return if scan.locked_unknown { Outcome::Unknown } else { Outcome::WasFree };
+        return (if scan.locked_unknown { Outcome::Unknown } else { Outcome::WasFree }, Vec::new());
     }
-    // first all are asked to close (at the same time), then the rest is ended
+    // first all are asked to close (at the same time), then the rest is ended; services and the system are left alone
+    // (ending them may stop Windows or lose data) – the window can end them after a question
     let mut explorer = Vec::new();
+    let mut ordinary = Vec::new();
+    let mut spared_names = Vec::new();
     for l in &scan.lockers {
-        match l.kind {
-            AppKind::Critical => {}
-            AppKind::Explorer => explorer.push(l.clone()),
-            _ => {
-                procs::post_close(l.pid);
-            }
+        let exe = procs::exe_path(l.pid);
+        if l.kind == AppKind::Explorer {
+            explorer.push(l.clone());
+        } else if spared(l, exe.as_deref()) {
+            spared_names.push(shown_name(l));
+        } else {
+            procs::post_close(l.pid);
+            ordinary.push(l.clone());
         }
     }
-    for l in &scan.lockers {
-        if matches!(l.kind, AppKind::Critical | AppKind::Explorer) {
-            continue;
-        }
-        let exe = procs::exe_path(l.pid);
-        if !procs::wait_exit(l.pid, 5000) && !procs::is_protected(l.pid, exe.as_deref()) {
+    for l in &ordinary {
+        if !procs::wait_exit(l.pid, 5000) {
             let _ = procs::terminate(l.pid, l.start_time);
         }
     }
@@ -74,15 +88,17 @@ fn unlock(targets: &[PathBuf]) -> Outcome {
     }
     std::thread::sleep(std::time::Duration::from_millis(400));
     let again = locks::scan(targets);
-    if !again.lockers.is_empty() {
-        let mut names: Vec<String> = again.lockers.iter().map(|l| if l.name.trim().is_empty() { format!("PID {}", l.pid) } else { l.name.clone() }).collect();
+    spared_names.dedup();
+    let outcome = if !again.lockers.is_empty() {
+        let mut names: Vec<String> = again.lockers.iter().map(shown_name).collect();
         names.dedup();
         Outcome::Held(names)
     } else if again.locked_unknown {
         Outcome::Unknown
     } else {
         Outcome::Free
-    }
+    };
+    (outcome, spared_names)
 }
 
 /// HeMiUnlocker again as administrator with the same files; false when Windows (or the user) said no.
@@ -105,8 +121,12 @@ pub fn relaunch_elevated(switch: &str, targets: &[PathBuf]) -> bool {
 
 pub fn name_of(targets: &[PathBuf]) -> String {
     match targets {
-        [one] => one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| one.display().to_string()),
-        many => tr("{n} items", "{n} položek").replace("{n}", &many.len().to_string()),
+        // one item in quotes, more as a count
+        [one] => {
+            let n = one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| one.display().to_string());
+            tr("“{n}”", "„{n}“").replace("{n}", &n)
+        }
+        many => count(many.len(), ["{n} item", "{n} items"], ["{n} položka", "{n} položky", "{n} položek"]),
     }
 }
 
@@ -155,10 +175,10 @@ pub fn toast(title: &str, text: &str) -> bool {
 }
 
 /// The result as a notification of Windows; the balloon of a short-lived notification-area icon when toasts fail.
-fn notify(targets: &[PathBuf], outcome: Outcome) {
+fn notify(targets: &[PathBuf], outcome: Outcome, spared: &[String]) {
     let name = name_of(targets);
-    let (title, text, flag) = match outcome {
-        Outcome::Free => (tr("Unlocked", "Odemčeno"), tr("{name} is free now.", "{name} je teď volný.").replace("{name}", &name), NIIF_INFO),
+    let (title, mut text, flag) = match outcome {
+        Outcome::Free => (tr("Unlocked", "Odemčeno"), tr("Nothing holds {name} now.", "{name} už nic nedrží.").replace("{name}", &name), NIIF_INFO),
         Outcome::WasFree => (
             tr("Nothing to unlock", "Není co odemykat"),
             tr("No program holds {name}.", "{name} nedrží žádný program.").replace("{name}", &name),
@@ -166,17 +186,27 @@ fn notify(targets: &[PathBuf], outcome: Outcome) {
         ),
         Outcome::Held(names) => (
             tr("Could not unlock", "Nepodařilo se odemknout"),
-            tr("{name} is still held by: {who}", "{name} pořád drží: {who}").replace("{name}", &name).replace("{who}", &names.join(", ")),
+            tr("Still holding {name}: {who}", "{name} pořád drží: {who}").replace("{name}", &name).replace("{who}", &names.join(", ")),
             NIIF_ERROR,
         ),
         Outcome::Unknown => (
             tr("Could not unlock", "Nepodařilo se odemknout"),
-            tr("{name} is held by something Windows does not show (a driver or a system service).", "{name} drží něco, co Windows neukazuje (ovladač nebo systémová služba).")
+            tr("Something Windows does not show holds {name} (a driver or a system service).", "{name} drží něco, co Windows neukazuje (ovladač nebo systémová služba).")
                 .replace("{name}", &name),
             NIIF_WARNING,
         ),
         Outcome::Failed(e) => (tr("Could not unlock", "Nepodařilo se odemknout"), e, NIIF_ERROR),
     };
+    if !spared.is_empty() {
+        text.push('\n');
+        text.push_str(
+            &tr(
+                "Not ended (a service or part of Windows): {who}. The window of HeMiUnlocker shows what can be done.",
+                "Neukončeno (služba nebo součást Windows): {who}. Co s tím jde dělat, ukáže okno HeMiUnlockeru.",
+            )
+            .replace("{who}", &spared.join(", ")),
+        );
+    }
     if toast(title, &text) {
         return;
     }

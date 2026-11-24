@@ -35,6 +35,13 @@ fn main() -> eframe::Result {
         }
         return Ok(());
     }
+    // "Undo" of a take ownership: started as administrator by the window
+    if args.first().map(String::as_str) == Some(ownership::RESTORE_SWITCH) {
+        if let Some(file) = args[1..].iter().find(|a| !a.starts_with("--")) {
+            ownership::restore(std::path::Path::new(file));
+        }
+        return Ok(());
+    }
     // "Take ownership": the same without the window, as administrator
     if args.first().map(String::as_str) == Some(ownership::SWITCH) {
         let (paths, elevated) = ownership::args(&args[1..]);

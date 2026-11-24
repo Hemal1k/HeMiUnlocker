@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 #[derive(Clone, Copy, PartialEq, Debug, Default)]
 pub struct Look {
-    /// 0 automatic (HeMiDock, else Windows), 1 light, 2 dark.
+    /// 0 automatic (as Windows), 1 light, 2 dark.
     pub theme: u8,
     /// 0 as Windows, 1 English, 2 Czech.
     pub language: u8,

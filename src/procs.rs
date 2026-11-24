@@ -11,6 +11,8 @@ use windows_sys::Win32::Foundation::*;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::Security::{GetTokenInformation, TOKEN_ELEVATION, TOKEN_QUERY, TokenElevation};
 use windows_sys::Win32::System::Diagnostics::ToolHelp::*;
+use windows_sys::Win32::System::RemoteDesktop::ProcessIdToSessionId;
+use windows_sys::Win32::System::SystemInformation::GetWindowsDirectoryW;
 use windows_sys::Win32::System::Threading::*;
 use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
@@ -102,20 +104,60 @@ pub fn is_protected(pid: u32, exe: Option<&str>) -> bool {
     if pid <= 4 || pid == std::process::id() {
         return true;
     }
+    // marked critical by Windows: ending it stops Windows (a blue screen), whatever its name
+    if is_critical(pid) {
+        return true;
+    }
     let Some(exe) = exe else { return false };
-    let name = exe.rsplit('\\').next().unwrap_or(exe).to_ascii_lowercase();
-    SYSTEM.contains(&name.as_str())
+    SYSTEM.contains(&exe_name(exe).as_str())
+}
+
+/// The file name of a program path in lower case.
+fn exe_name(exe: &str) -> String {
+    exe.rsplit(['\\', '/']).next().unwrap_or(exe).to_ascii_lowercase()
+}
+
+/// True when Windows marks the process as critical (IsProcessCritical).
+fn is_critical(pid: u32) -> bool {
+    let Some(h) = open(pid, PROCESS_QUERY_LIMITED_INFORMATION) else { return false };
+    let mut critical: BOOL = 0;
+    // SAFETY: a valid process handle and a valid out pointer
+    unsafe { IsProcessCritical(h.0, &mut critical) != 0 && critical != 0 }
+}
+
+/// A service or a process of the system (the session of the services, svchost): "Unlock" from the menu does not end
+/// it without asking – the window can, after a question.
+pub fn is_service(pid: u32, exe: Option<&str>) -> bool {
+    if exe.is_some_and(|e| exe_name(e) == "svchost.exe") {
+        return true;
+    }
+    let mut session = u32::MAX;
+    // SAFETY: a valid out pointer; session 0 holds the services and the system, never a program of the user
+    unsafe { ProcessIdToSessionId(pid, &mut session) != 0 && session == 0 }
+}
+
+/// %SystemRoot%\explorer.exe by the Windows folder itself – never a program named so in the current folder or PATH.
+fn explorer() -> PathBuf {
+    let mut buf = [0u16; 260];
+    // SAFETY: the buffer and its length in characters
+    let n = unsafe { GetWindowsDirectoryW(buf.as_mut_ptr(), buf.len() as u32) } as usize;
+    let dir = if n > 0 && n < buf.len() { String::from_utf16_lossy(&buf[..n]) } else { r"C:\Windows".into() };
+    PathBuf::from(dir).join("explorer.exe")
 }
 
 fn open_error() -> String {
     match unsafe { GetLastError() } {
+        // already administrator: Windows protects the program (an antivirus, for example)
+        ERROR_ACCESS_DENIED if self_elevated() => {
+            tr("The program is protected by Windows and cannot be ended.", "Program je chráněný Windows a nejde ukončit.").into()
+        }
         ERROR_ACCESS_DENIED => tr(
             "Access denied – the program runs with higher rights. Run HeMiUnlocker as administrator.",
             "Přístup odepřen – program běží s vyššími právy. Spusť HeMiUnlocker jako správce.",
         )
         .into(),
         ERROR_INVALID_PARAMETER => tr("The program is no longer running.", "Program už neběží.").into(),
-        e => format!("{} ({e}).", tr("The program cannot be opened", "Program nejde otevřít – chyba")),
+        e => format!("{}: {}", tr("The program cannot be opened", "Program nejde otevřít"), crate::i18n::os_error(e)),
     }
 }
 
@@ -161,7 +203,7 @@ pub fn terminate(pid: u32, start_time: u64) -> Result<(), String> {
     if start_time != 0 && creation_time(h.0).is_some_and(|t| t != start_time) {
         return Err(tr(
             "The program is no longer running (its PID now belongs to another process).",
-            "Program už neběží (jeho číslo teď patří jinému procesu).",
+            "Program už neběží (jeho PID teď patří jinému procesu).",
         )
         .into());
     }
@@ -203,11 +245,11 @@ pub fn restart_explorer(pid: u32, start_time: u64) -> Result<(), String> {
             return Ok(());
         }
     }
-    Command::new("explorer.exe").spawn().map(|_| ()).map_err(|e| e.to_string())
+    Command::new(explorer()).spawn().map(|_| ()).map_err(|e| e.to_string())
 }
 
 pub fn show_in_explorer(path: &str) {
-    let _ = Command::new("explorer.exe").raw_arg(format!("/select,\"{path}\"")).spawn();
+    let _ = Command::new(explorer()).raw_arg(format!("/select,\"{path}\"")).spawn();
 }
 
 /// Opens a file or a link (mailto:, a text file …) in its default app.
@@ -289,5 +331,30 @@ unsafe fn icon_pixels(icon: HICON) -> Option<(Vec<u8>, usize, usize)> {
             }
         }
         Some((px, w as usize, h as usize))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn explorer_by_its_full_path() {
+        let e = explorer();
+        assert!(e.is_absolute() && e.ends_with("explorer.exe") && e.exists(), "{}", e.display());
+    }
+
+    #[test]
+    fn services_and_the_system_are_told() {
+        // this test: a program of the user, not critical
+        let me = std::process::id();
+        let exe = std::env::current_exe().unwrap().display().to_string();
+        assert!(!is_service(me, Some(&exe)));
+        assert!(!is_service(me + 1_000_000_000, Some(&exe)));
+        assert!(is_service(me, Some(r"C:\Windows\System32\svchost.exe")));
+        assert!(!is_critical(me));
+        // the System process (its session may be read only as administrator)
+        assert!(is_protected(4, None));
+        assert_eq!(exe_name(r"C:\Windows\System32\CSRSS.EXE"), "csrss.exe");
     }
 }

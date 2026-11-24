@@ -1,7 +1,7 @@
 //! The window of HeMiUnlocker: the chosen file, the programs that hold it and what can be done with them.
 //! Laid out like the settings of HeMiDock: a large title, small semibold section headers, cards with a frame.
 
-use crate::i18n::tr;
+use crate::i18n::{count, tr};
 use crate::locks::{self, AppKind, Locker, Scan};
 use crate::procs::{self, Elevation};
 use crate::theme::{self, Palette, glyph};
@@ -116,6 +116,7 @@ enum Action {
     /// HeMi Launcher, for the updates.
     Launcher,
     TakeOwnership,
+    UndoOwnership,
 }
 
 pub struct HeMiUnlockerApp {
@@ -263,15 +264,15 @@ impl HeMiUnlockerApp {
                     self.busy.remove(&pid);
                     match outcome {
                         Outcome::Closed => {
-                            self.toast(tr("{name} closed.", "{name} se zavřel.").replace("{name}", &name), Tone::Success);
+                            self.toast(tr("{name} closed.", "Program {name} se zavřel.").replace("{name}", &name), Tone::Success);
                             self.rescan(ctx);
                         }
                         Outcome::Killed => {
-                            self.toast(tr("{name} was ended.", "{name} byl ukončen.").replace("{name}", &name), Tone::Success);
+                            self.toast(tr("{name} was ended.", "Program {name} byl ukončen.").replace("{name}", &name), Tone::Success);
                             self.rescan(ctx);
                         }
                         Outcome::ExplorerRestarted => {
-                            self.toast(tr("File Explorer was restarted.", "Průzkumník byl restartován."), Tone::Success);
+                            self.toast(tr("File Explorer was restarted.", "Průzkumník souborů se restartoval."), Tone::Success);
                             self.rescan(ctx);
                         }
                         Outcome::NoWindow => {
@@ -298,7 +299,7 @@ impl HeMiUnlockerApp {
         }
     }
 
-    /// Light / dark or the accent colour changed (in Windows or in HeMiDock): the new colours at once.
+    /// Light / dark or the accent color changed (in Windows or in HeMiDock): the new colors at once.
     fn follow_theme(&mut self, ctx: &egui::Context) {
         if self.theme_checked.elapsed() < Duration::from_secs(2) {
             return;
@@ -362,7 +363,7 @@ impl HeMiUnlockerApp {
         ui.add_space(18.0);
     }
 
-    /// The page "O aplikaci", as in HeMiDock: author, version, build date, contact, licences.
+    /// The page "O aplikaci", as in HeMiDock: author, version, build date, contact, licenses.
     fn about_page(&self, ui: &mut egui::Ui, acts: &mut Vec<Action>) {
         let p = self.p;
         // what is set once (the switch was at the bottom of the window): the item in the menu of File Explorer
@@ -389,7 +390,7 @@ impl HeMiUnlockerApp {
                 });
             });
         }
-        ui.add_space(14.0);        section(ui, &p, tr("File Explorer", "Průzkumník"));
+        ui.add_space(14.0);        section(ui, &p, tr("File Explorer", "Průzkumník souborů"));
         card(ui, &p, |ui| {
             row_layout(ui, 44.0, |ui| {
                 ui.label(RichText::new(tr("Context menu", "Kontextová nabídka")).size(14.0).color(p.text));
@@ -419,7 +420,7 @@ impl HeMiUnlockerApp {
             (tr("Project on GitHub", "Projekt na GitHubu"), PROJECT, Action::Open(format!("https://{PROJECT}"))),
             (tr("What's new", "Co je nového"), RELEASES, Action::Open(format!("https://{RELEASES}"))),
             (tr("Report a problem", "Nahlásit problém"), CONTACT, Action::Open(format!("https://{CONTACT}"))),
-            (tr("Licences", "Licence"), "", Action::OpenLicences),
+            (tr("Licenses", "Licence"), "", Action::OpenLicences),
         ];
         // HeMi Launcher on this PC: the updates are its job
         if crate::launcher::exe().is_some() {
@@ -469,8 +470,18 @@ impl HeMiUnlockerApp {
                         if Btn::new("").icon(glyph::SHIELD).subtle().tip(tip).show(ui, &p).clicked() {
                             acts.push(Action::TakeOwnership);
                         }
+                        // the last take ownership can be put back (the owners and permissions were written down)
+                        if crate::ownership::last_undo().is_some() {
+                            let tip = tr(
+                                "Undo the last take ownership: the owners and permissions as they were (asks for administrator rights).",
+                                "Vrátit poslední převzetí vlastnictví: vlastníci a oprávnění jako předtím (zeptá se na oprávnění správce).",
+                            );
+                            if Btn::new("").icon(glyph::UNDO).subtle().tip(tip).show(ui, &p).clicked() {
+                                acts.push(Action::UndoOwnership);
+                            }
+                        }
                         if let [one] = self.targets.as_slice() {
-                            let tip = tr("Show in File Explorer", "Ukázat v Průzkumníkovi");
+                            let tip = tr("Show in File Explorer", "Zobrazit v Průzkumníkovi souborů");
                             if Btn::new("").icon(glyph::OPEN_FOLDER).subtle().tip(tip).show(ui, &p).clicked() {
                                 acts.push(Action::ShowInExplorer(one.display().to_string()));
                             }
@@ -483,13 +494,13 @@ impl HeMiUnlockerApp {
                             let (title, detail) = match self.targets.as_slice() {
                                 [] => (
                                     tr("Choose a file or folder", "Vyber soubor nebo složku").to_string(),
-                                    tr("Or drag it here from File Explorer.", "Nebo ho sem přetáhni z Průzkumníka.").to_string(),
+                                    tr("Or drag it here from File Explorer.", "Nebo ho sem přetáhni z Průzkumníka souborů.").to_string(),
                                 ),
                                 [one] => (
                                     one.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| one.display().to_string()),
                                     one.parent().map(|d| d.display().to_string()).unwrap_or_default(),
                                 ),
-                                many => (tr("{n} items", "{n} položek").replace("{n}", &many.len().to_string()), many.iter().filter_map(|t| t.file_name()).map(|n| n.to_string_lossy()).collect::<Vec<_>>().join(", ")),
+                                many => (count(many.len(), ["{n} item", "{n} items"], ["{n} položka", "{n} položky", "{n} položek"]), many.iter().filter_map(|t| t.file_name()).map(|n| n.to_string_lossy()).collect::<Vec<_>>().join(", ")),
                             };
                             ui.add(egui::Label::new(RichText::new(title).size(14.0).color(p.text)).truncate());
                             ui.add(egui::Label::new(RichText::new(detail).size(12.0).color(p.text2)).truncate());
@@ -513,7 +524,7 @@ impl HeMiUnlockerApp {
                 ui.add(egui::Spinner::new().size(14.0).color(p.accent_text));
             }
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                if closable.len() > 1 && Btn::new(tr("Close all", "Ukončit vše")).icon(glyph::CLOSE).show(ui, &p).clicked() {
+                if closable.len() > 1 && Btn::new(tr("Close all", "Zavřít vše")).icon(glyph::CLOSE).show(ui, &p).clicked() {
                     acts.push(Action::AskCloseAll(closable.clone()));
                 }
                 if Btn::new(tr("Refresh", "Obnovit")).icon(glyph::REFRESH).subtle().enabled(!self.scanning).show(ui, &p).clicked() {
@@ -628,12 +639,12 @@ impl HeMiUnlockerApp {
                         ui.label(RichText::new(tr("Protected system process", "Chráněný systémový proces")).size(12.0).color(p.text3));
                         ui.label(RichText::new(glyph::SHIELD.to_string()).font(theme::icon(14.0)).color(p.text3));
                     } else if row.l.kind == AppKind::Explorer {
-                        let tip = tr("Ends File Explorer and starts it again right away.", "Ukončí Průzkumník a hned ho spustí znovu.");
+                        let tip = tr("Ends File Explorer and starts it again right away.", "Ukončí Průzkumníka souborů a hned ho spustí znovu.");
                         if Btn::new(tr("Restart", "Restartovat")).icon(glyph::RESTART).tip(tip).show(ui, &p).clicked() {
                             acts.push(Action::AskExplorer(row.clone()));
                         }
                     } else {
-                        if Btn::new(tr("Close", "Ukončit"))
+                        if Btn::new(tr("Close", "Zavřít"))
                             .icon(glyph::CLOSE)
                             .accent()
                             .tip(tr(
@@ -656,7 +667,7 @@ impl HeMiUnlockerApp {
                         }
                     }
                     if let Some(exe) = &row.exe {
-                        let tip = tr("Show the program in File Explorer", "Ukázat program v Průzkumníkovi");
+                        let tip = tr("Show the program in File Explorer", "Zobrazit program v Průzkumníkovi souborů");
                         if Btn::new("").icon(glyph::OPEN_FOLDER).subtle().tip(tip).show(ui, &p).clicked() {
                             acts.push(Action::ShowInExplorer(exe.clone()));
                         }
@@ -749,22 +760,22 @@ impl HeMiUnlockerApp {
                 tr("Force quit", "Vynutit ukončení"),
             ),
             Confirm::Explorer(_) => (
-                tr("Restart File Explorer?", "Restartovat Průzkumník?"),
+                tr("Restart File Explorer?", "Restartovat Průzkumníka souborů?"),
                 tr(
                     "Folder windows close and the taskbar disappears for a moment. File Explorer starts again right away.",
-                    "Okna složek se zavřou a hlavní panel na chvíli zmizí. Průzkumník se hned spustí znovu.",
+                    "Okna složek se zavřou a hlavní panel na chvíli zmizí. Průzkumník souborů se hned spustí znovu.",
                 )
                 .to_string(),
                 tr("Restart", "Restartovat"),
             ),
             Confirm::CloseAll(rows) => (
-                tr("Close all programs?", "Ukončit všechny programy?"),
+                tr("Close all programs?", "Zavřít všechny programy?"),
                 tr(
-                    "HeMiUnlocker will ask {n} programs to close. Each may still ask to save.",
-                    "HeMiUnlocker požádá {n} programy o zavření. Každý se ještě může zeptat na uložení.",
+                    "HeMiUnlocker will ask {n} to close. Each may still ask to save.",
+                    "HeMiUnlocker požádá o zavření {n}. Každý se ještě může zeptat na uložení.",
                 )
-                .replace("{n}", &rows.len().to_string()),
-                tr("Close all", "Ukončit vše"),
+                .replace("{n}", &count(rows.len(), ["{n} program", "{n} programs"], ["{n} program", "{n} programy", "{n} programů"])),
+                tr("Close all", "Zavřít vše"),
             ),
         };
         let mut choice: Option<bool> = None;
@@ -827,7 +838,7 @@ impl HeMiUnlockerApp {
                     l.save();
                     crate::i18n::set(l.language);
                     self.look = l;
-                    // the new colours at once, not after the next look at the theme
+                    // the new colors at once, not after the next look at the theme
                     self.theme_checked = Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
                 }
                 Action::PickFiles | Action::PickFolder => {
@@ -858,12 +869,17 @@ impl HeMiUnlockerApp {
                         self.toast(tr("Ownership needs administrator rights.", "Převzetí vlastnictví potřebuje oprávnění správce."), Tone::Caution);
                     }
                 }
+                Action::UndoOwnership => {
+                    if !crate::ownership::start_restore() {
+                        self.toast(tr("Undoing needs administrator rights.", "Vrácení potřebuje oprávnění správce."), Tone::Caution);
+                    }
+                }
                 Action::Launcher => crate::launcher::open(),
                 Action::OpenLicences => {
                     let file = std::env::temp_dir().join("HeMiUnlocker-ThirdPartyNotices.txt");
                     match std::fs::write(&file, include_str!("../assets/ThirdPartyNotices.txt")) {
                         Ok(()) => procs::shell_open(&file.display().to_string()),
-                        Err(e) => self.toast(format!("{}: {e}", tr("The licences cannot be opened", "Licence nejde otevřít")), Tone::Critical),
+                        Err(e) => self.toast(format!("{}: {e}", tr("The licenses cannot be opened", "Licence nejde otevřít")), Tone::Critical),
                     }
                 }
                 Action::ToggleMenu => match crate::shell_menu::set(!self.menu_on) {
@@ -872,10 +888,10 @@ impl HeMiUnlockerApp {
                         let text = if self.menu_on {
                             tr(
                                 "The item is in the File Explorer menu (in Windows 11 under “Show more options”).",
-                                "Položka je v nabídce Průzkumníka (ve Windows 11 pod „Zobrazit další možnosti“).",
+                                "Položka je v nabídce Průzkumníka souborů (ve Windows 11 pod „Zobrazit další možnosti“).",
                             )
                         } else {
-                            tr("The item was removed from the File Explorer menu.", "Položka byla z nabídky Průzkumníka odebrána.")
+                            tr("The item was removed from the File Explorer menu.", "Položka byla z nabídky Průzkumníka souborů odebrána.")
                         };
                         self.toast(text, Tone::Success);
                     }
@@ -963,7 +979,7 @@ fn section(ui: &mut egui::Ui, p: &Palette, text: &str) {
     ui.add_space(4.0);
 }
 
-/// A card of the settings of HeMiDock: the card colour, a thin frame, rounded corners.
+/// A card of the settings of HeMiDock: the card color, a thin frame, rounded corners.
 fn card<R>(ui: &mut egui::Ui, p: &Palette, add: impl FnOnce(&mut egui::Ui) -> R) -> R {
     egui::Frame::new()
         .fill(p.card)
@@ -1015,7 +1031,7 @@ fn empty_hint(ui: &mut egui::Ui, p: &Palette) {
     });
 }
 
-/// An InfoBar of WinUI: a coloured strip with an icon. Returns true when its × was clicked.
+/// An InfoBar of WinUI: a colored strip with an icon. Returns true when its × was clicked.
 fn info_bar(ui: &mut egui::Ui, p: &Palette, tone: Tone, text: &str, closable: Option<()>) -> bool {
     let (bg, fg, g) = match tone {
         Tone::Success => (p.success_bg, p.success, glyph::COMPLETED),
@@ -1046,7 +1062,7 @@ fn info_bar(ui: &mut egui::Ui, p: &Palette, tone: Tone, text: &str, closable: Op
     closed
 }
 
-/// A ToggleSwitch of WinUI: a pill 40 × 20 with a knob, the accent colour when on.
+/// A ToggleSwitch of WinUI: a pill 40 × 20 with a knob, the accent color when on.
 fn toggle(ui: &mut egui::Ui, p: &Palette, on: bool) -> egui::Response {
     let (rect, resp) = ui.allocate_exact_size(vec2(40.0, 20.0), Sense::click());
     let t = ui.ctx().animate_bool_with_time(resp.id, on, 0.12);

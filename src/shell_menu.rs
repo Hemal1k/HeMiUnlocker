@@ -65,7 +65,7 @@ pub(crate) fn write(key: &str, name: Option<&str>, value: &str) -> Result<(), St
 }
 
 fn write_error(r: u32) -> String {
-    format!("{} ({r}).", tr("Writing to the registry failed", "Zápis do registru se nepodařil – chyba"))
+    format!("{}: {}", tr("Writing to the registry failed", "Zápis do registru se nepodařil"), crate::i18n::os_error(r))
 }
 
 /// On: the submenu, or the single item of older versions (it is rewritten by `repair`).
@@ -77,7 +77,7 @@ fn remove(key: &str) -> Result<(), String> {
     let k = wide(key);
     let r = unsafe { RegDeleteTreeW(HKEY_CURRENT_USER, k.as_ptr()) };
     if r != ERROR_SUCCESS && r != ERROR_FILE_NOT_FOUND {
-        return Err(format!("{} ({r}).", tr("The item could not be removed", "Položku se nepodařilo odebrat – chyba")));
+        return Err(format!("{}: {}", tr("The item could not be removed", "Položku se nepodařilo odebrat"), crate::i18n::os_error(r)));
     }
     let _ = unsafe { RegDeleteKeyW(HKEY_CURRENT_USER, k.as_ptr()) };
     Ok(())

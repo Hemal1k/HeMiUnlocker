@@ -29,7 +29,7 @@ impl AppKind {
         match self {
             AppKind::Window | AppKind::OtherWindow => tr("App", "Aplikace"),
             AppKind::Service => tr("Service", "Služba"),
-            AppKind::Explorer => tr("File Explorer", "Průzkumník"),
+            AppKind::Explorer => tr("File Explorer", "Průzkumník souborů"),
             AppKind::Console => tr("Console", "Konzole"),
             AppKind::Critical => tr("System", "Systém"),
             AppKind::Unknown => tr("Process", "Proces"),
@@ -122,7 +122,7 @@ fn query(files: &[PathBuf]) -> Result<Vec<Locker>, String> {
         let mut key = [0u16; CCH_RM_SESSION_KEY as usize + 1];
         let r = RmStartSession(&mut session, 0, key.as_mut_ptr());
         if r != ERROR_SUCCESS {
-            return Err(format!("{} ({r}).", tr("The Windows Restart Manager did not start", "Správce restartů Windows se nespustil – chyba")));
+            return Err(format!("{}: {}", tr("The Windows Restart Manager did not start", "Správce restartování Windows se nespustil"), crate::i18n::os_error(r)));
         }
         let infos = list(session, files);
         RmEndSession(session);
@@ -159,7 +159,7 @@ unsafe fn list(session: u32, files: &[PathBuf]) -> Result<Vec<RM_PROCESS_INFO>, 
         let ptrs: Vec<*const u16> = chunk.iter().map(|w| w.as_ptr()).collect();
         let r = unsafe { RmRegisterResources(session, ptrs.len() as u32, ptrs.as_ptr(), 0, null(), 0, null()) };
         if r != ERROR_SUCCESS {
-            return Err(format!("{} ({r}).", tr("Windows could not check the file", "Soubor se nepodařilo předat Windows ke kontrole – chyba")));
+            return Err(format!("{}: {}", tr("Windows could not check the file", "Soubor se nepodařilo předat Windows ke kontrole"), crate::i18n::os_error(r)));
         }
     }
     let mut infos: Vec<RM_PROCESS_INFO> = Vec::new();
@@ -175,7 +175,7 @@ unsafe fn list(session: u32, files: &[PathBuf]) -> Result<Vec<RM_PROCESS_INFO>, 
             return Ok(infos);
         }
         if r != ERROR_MORE_DATA {
-            return Err(format!("{} ({r}).", tr("The list of programs could not be read", "Seznam programů se nepodařilo získat – chyba")));
+            return Err(format!("{}: {}", tr("The list of programs could not be read", "Seznam programů se nepodařilo získat"), crate::i18n::os_error(r)));
         }
         infos = vec![unsafe { std::mem::zeroed() }; needed as usize + 4];
     }

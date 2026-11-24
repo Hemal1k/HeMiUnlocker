@@ -36,10 +36,11 @@ Windows 10 / 11, x64 and ARM64. Nothing else needs to be installed.
   - **Unlock** – without the window: the programs are asked to close, what stays is ended (File Explorer restarted);
     when that needs administrator rights, HeMiUnlocker asks for them and tries again. A notification of Windows tells
     the result.
-  - **Take ownership** – the file or the folder with everything in it goes to the Administrators, with full control
-    (after the question of Windows); also in the window (the shield button).
-  - **Take ownership** – the file or the folder with everything in it goes to the Administrators, with full control
-    (after the question of Windows); also in the window (the shield button).
+  - **Take ownership** – you become the owner of the file or the folder with everything in it and the Administrators
+    get full control (after the question of Windows); also in the window (the shield button). HeMiUnlocker asks first,
+    refuses the places Windows itself needs (the Windows folder, Program Files itself, the root of a drive …) and saves the
+    owners and permissions as they were – **Undo** in the window puts them back.
+- **Settings** (the gear): theme and language, kept in `%AppData%\HeMi\HeMiUnlocker\appearance.ini`.
 
 ## Building
 
@@ -66,7 +67,10 @@ so it runs without the Visual C++ Redistributable).
 | `src\procs.rs` | Processes: program path, administrator rights, icon, closing and ending them. |
 | `src\shell_menu.rs` | The optional File Explorer submenu (`HKCU\Software\Classes`). |
 | `src\unlock.rs` | “Unlock” from the submenu: close or end the holders, again as administrator when needed, the notification. |
-| `src\theme.rs`, `src\i18n.rs` | The Windows 11 look in egui (light / dark, accent colour) and the texts in two languages. |
+| `src\ownership.rs` | “Take ownership”: the question, the refused system places, the saved owners and permissions and “Undo”. |
+| `src\launcher.rs` | The link to HeMi Launcher for updates. |
+| `src\look.rs` | The theme and the language (`%AppData%\HeMi\HeMiUnlocker\appearance.ini`). |
+| `src\theme.rs`, `src\i18n.rs` | The Windows 11 look in egui (light / dark, accent color) and the texts in two languages. |
 | `assets` | The icon and the notices of the components. |
 
 ## License

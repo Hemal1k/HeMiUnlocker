@@ -36,3 +36,33 @@ pub fn tr<'a>(en: &'a str, cs: &'a str) -> &'a str {
     if cz() { cs } else { en }
 }
 
+
+/// The text of Windows for an error code (in the language of Windows), with the code.
+pub fn os_error(code: u32) -> String {
+    std::io::Error::from_raw_os_error(code as i32).to_string()
+}
+
+/// The form for a count in Czech: 1 → `one`, 2–4 → `few`, otherwise `many` (English: `few` = `many`).
+pub fn plural<'a>(n: usize, one: &'a str, few: &'a str, many: &'a str) -> &'a str {
+    match n {
+        1 => one,
+        2..=4 => few,
+        _ => many,
+    }
+}
+
+/// "{n} item(s)" in the language of the app, with the right form for the count.
+pub fn count(n: usize, en: [&str; 2], cs: [&str; 3]) -> String {
+    tr(plural(n, en[0], en[1], en[1]), plural(n, cs[0], cs[1], cs[2])).replace("{n}", &n.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::plural;
+
+    #[test]
+    fn czech_plural() {
+        let f = |n| plural(n, "položka", "položky", "položek");
+        assert_eq!([f(0), f(1), f(2), f(4), f(5), f(22)], ["položek", "položka", "položky", "položky", "položek", "položek"]);
+    }
+}

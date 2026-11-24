@@ -1,4 +1,4 @@
-﻿; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=1.1.0 /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
+﻿; HeMiUnlocker installer (Inno Setup 6), built by release.ps1:  ISCC /DAppVersion=<version> /DAppExe=<HeMiUnlocker.exe> /DOutputDir=<folder>
 ; For the current user (no administrator) or for all users - the installer asks. Uninstalling removes the File Explorer item of the app as well.
 
 #ifndef AppVersion
@@ -48,8 +48,21 @@ CloseApplications=force
 LicenseFile=..\LICENSE
 
 [Languages]
-; English only
+; English, Czech on a Czech Windows
 Name: "en"; MessagesFile: "compiler:Default.isl"
+Name: "cs"; MessagesFile: "compiler:Languages\Czech.isl"
+
+[CustomMessages]
+en.TypeFull=Full – the window and the File Explorer menu
+cs.TypeFull=Úplná – okno a nabídka Průzkumníka souborů
+en.TypeMenu=Minimal – only the items in the File Explorer menu
+cs.TypeMenu=Minimální – jen položky v nabídce Průzkumníka souborů
+en.ComponentWindow=The window of HeMiUnlocker in Start
+cs.ComponentWindow=Okno HeMiUnlockeru v nabídce Start
+en.DeleteSettings=Delete the settings of HeMiUnlocker too?
+cs.DeleteSettings=Smazat i nastavení HeMiUnlockeru?
+en.KeepSettings=Keep them to use them again when you install HeMiUnlocker later.
+cs.KeepSettings=Když je ponecháš, použijí se znovu, až HeMiUnlocker nainstaluješ později.
 
 [Files]
 ; x64, and the ARM64 program on Windows on ARM when the installer has it
@@ -63,11 +76,11 @@ Source: "{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 ; full, or only the items in the File Explorer menu (the user, 2026-11-19): the same one exe (it does the work of the
 ; menu), but no window in Start, no desktop icon, nothing opened at the end – the menu items are switched on instead
 [Types]
-Name: "full"; Description: "Full – the window and the File Explorer menu"
-Name: "menu"; Description: "Minimal – only the items in the File Explorer menu"
+Name: "full"; Description: "{cm:TypeFull}"
+Name: "menu"; Description: "{cm:TypeMenu}"
 
 [Components]
-Name: "window"; Description: "The window of HeMiUnlocker in Start"; Types: full
+Name: "window"; Description: "{cm:ComponentWindow}"; Types: full
 
 [Tasks]
 ; offered on its own page, off by default
@@ -78,7 +91,7 @@ Name: "{autoprograms}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"; Compone
 Name: "{autodesktop}\HeMiUnlocker"; Filename: "{app}\HeMiUnlocker.exe"; Tasks: desktopicon
 
 [Run]
-; the File Explorer items and the start with Windows point to this installation (also after a move from the old folder)
+; the File Explorer items point to this installation (also after a move from the old folder)
 Filename: "{app}\HeMiUnlocker.exe"; Parameters: "--repair"; Flags: runasoriginaluser waituntilterminated runhidden
 ; minimal: the menu items on (the window, where they are switched, is not offered)
 Filename: "{app}\HeMiUnlocker.exe"; Parameters: "--menu-on"; Flags: runasoriginaluser waituntilterminated runhidden; Check: not WizardIsComponentSelected('window')
@@ -105,7 +118,7 @@ Type: dirifempty; Name: "{localappdata}\HeMi"
 [Code]
 // Since 2026-11 the HeMi apps go into one folder HeMi, as their settings do (%AppData%\HeMi\<app>): {autopf}\HeMi\HeMiUnlocker.
 // An installation in the old folder {autopf}\HeMiUnlocker moves: the app running from there ends, the new version goes into the
-// new folder ("--repair" points the File Explorer items and the start with Windows to it) and the old folder is deleted.
+// new folder ("--repair" points the File Explorer items to it) and the old folder is deleted.
 var
   OldFolder: String;
 
@@ -159,7 +172,7 @@ begin
   Dir := ExpandConstant('{userappdata}\HeMi\HeMiUnlocker');
   if not DirExists(Dir) then Exit;
   if UninstallSilent then Exit;
-  if MsgBox('Delete the settings of HeMiUnlocker too?' + #13#10#13#10 + 'Keep them to use them again when you install HeMiUnlocker later.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
+  if MsgBox(CustomMessage('DeleteSettings') + #13#10#13#10 + CustomMessage('KeepSettings'), mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES then
   begin
     DelTree(Dir, True, True, True);
     RemoveDir(ExpandConstant('{userappdata}\HeMi'));

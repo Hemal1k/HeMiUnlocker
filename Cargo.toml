@@ -1,6 +1,6 @@
 [package]
 name = "hemiunlocker"
-version = "1.5.0"
+version = "1.6.0"
 edition = "2024"
 description = "HeMiUnlocker – which process holds a locked file"
 authors = ["Richard Hemala"]
@@ -19,6 +19,8 @@ windows-sys = { version = "0.61.2", features = [
     "Win32_Globalization",
     "Win32_System_RestartManager",
     "Win32_System_Threading",
+    "Win32_System_RemoteDesktop",
+    "Win32_System_SystemInformation",
     "Win32_System_Registry",
     "Win32_Security",
     "Win32_Security_Authorization",
