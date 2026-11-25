@@ -27,6 +27,7 @@ pub fn cz() -> bool {
                 _ => {}
             }
         }
+        // SAFETY: no arguments
         (unsafe { GetUserDefaultUILanguage() } & 0x3FF) == 0x05
     })
 }
@@ -35,7 +36,6 @@ pub fn cz() -> bool {
 pub fn tr<'a>(en: &'a str, cs: &'a str) -> &'a str {
     if cz() { cs } else { en }
 }
-
 
 /// The text of Windows for an error code (in the language of Windows), with the code.
 pub fn os_error(code: u32) -> String {

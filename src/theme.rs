@@ -187,6 +187,7 @@ fn reg_dword(key: &str, value: &str) -> Option<u32> {
     let (k, v) = (crate::procs::wide(key), crate::procs::wide(value));
     let mut data = 0u32;
     let mut size = 4u32;
+    // SAFETY: the names end with a NUL; the out buffer is one u32 and `size` says 4 bytes
     let r = unsafe {
         RegGetValueW(HKEY_CURRENT_USER, k.as_ptr(), v.as_ptr(), RRF_RT_REG_DWORD, null_mut(), &mut data as *mut u32 as _, &mut size)
     };
@@ -197,6 +198,7 @@ fn reg_binary(key: &str, value: &str) -> Option<Vec<u8>> {
     let (k, v) = (crate::procs::wide(key), crate::procs::wide(value));
     let mut data = vec![0u8; 64];
     let mut size = data.len() as u32;
+    // SAFETY: the names end with a NUL; `size` is the size of the buffer in bytes
     let r = unsafe {
         RegGetValueW(HKEY_CURRENT_USER, k.as_ptr(), v.as_ptr(), RRF_RT_REG_BINARY, null_mut(), data.as_mut_ptr() as _, &mut size)
     };
@@ -206,29 +208,18 @@ fn reg_binary(key: &str, value: &str) -> Option<Vec<u8>> {
     })
 }
 
-/// A value from HeMiDock's settings.json (a flat object; no JSON library needed).
-fn setting<'a>(json: &'a str, key: &str) -> Option<&'a str> {
-    let k = format!("\"{key}\"");
-    let rest = &json[json.find(&k)? + k.len()..];
-    let rest = rest.trim_start().strip_prefix(':')?.trim_start();
-    let end = rest.find([',', '\n', '}'])?;
-    Some(rest[..end].trim().trim_matches('"'))
-}
-
 fn shades(base: Color32) -> [Color32; 7] {
     let (w, b) = (Color32::WHITE, Color32::BLACK);
     [mix(base, w, 0.72), mix(base, w, 0.5), mix(base, w, 0.25), base, mix(base, b, 0.2), mix(base, b, 0.4), mix(base, b, 0.6)]
 }
 
-/// `mode`: the theme chosen in the app (0 automatic – HeMiDock, else Windows; 1 light; 2 dark).
+/// `mode`: the theme chosen in the app (0 automatic – as Windows; 1 light; 2 dark).
 pub fn read_source(mode: u8) -> Source {
     // each app has its own look (the user, 2026-11-19: the theme of HeMiDock changed HeMi Launcher too): the settings of
     // HeMiDock are not read any more – "as Windows" is the light / dark mode and the accent color of Windows
-    let hemidock = String::new();
-    let theme_mode = setting(&hemidock, "ThemeMode").and_then(|v| v.parse::<i32>().ok()).unwrap_or(0);
     let theme_mode = match mode {
-        1 | 2 => mode as i32,
-        _ => theme_mode,
+        1 | 2 => i32::from(mode),
+        _ => 0,
     };
     // Debug builds only: HEMI_THEME=light / dark for screenshots, without changing Windows
     let theme_mode = match std::env::var("HEMI_THEME").ok().filter(|_| cfg!(debug_assertions)).as_deref() {
@@ -242,18 +233,9 @@ pub fn read_source(mode: u8) -> Source {
         _ => reg_dword(r"Software\Microsoft\Windows\CurrentVersion\Themes\Personalize", "AppsUseLightTheme").unwrap_or(1) != 0,
     };
 
-    let own = (setting(&hemidock, "AccentMode") == Some("1"))
-        .then(|| setting(&hemidock, "AccentColor"))
-        .flatten()
-        .and_then(|c| u32::from_str_radix(c.trim_start_matches('#'), 16).ok())
-        .map(|c| rgb((c >> 16) as u8, (c >> 8) as u8, c as u8));
-
-    let accent = match own {
-        Some(c) => shades(c),
-        None => match reg_binary(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent", "AccentPalette") {
-            Some(p) if p.len() >= 28 => std::array::from_fn(|i| rgb(p[i * 4], p[i * 4 + 1], p[i * 4 + 2])),
-            _ => shades(rgb(0x00, 0x78, 0xD4)),
-        },
+    let accent = match reg_binary(r"Software\Microsoft\Windows\CurrentVersion\Explorer\Accent", "AccentPalette") {
+        Some(p) if p.len() >= 28 => std::array::from_fn(|i| rgb(p[i * 4], p[i * 4 + 1], p[i * 4 + 2])),
+        _ => shades(rgb(0x00, 0x78, 0xD4)),
     };
     Source { light, accent }
 }
@@ -376,6 +358,7 @@ pub fn style_window(hwnd: isize, p: &Palette) {
     let dark: i32 = (!p.light) as i32;
     let caption = colorref(p.bg);
     let text = colorref(p.text);
+    // SAFETY: each value is a 4-byte local that lives through its call (a wrong window only makes the calls fail)
     unsafe {
         DwmSetWindowAttribute(hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE as _, &dark as *const i32 as _, 4);
         DwmSetWindowAttribute(hwnd, DWMWA_CAPTION_COLOR as _, &caption as *const u32 as _, 4);

@@ -16,44 +16,53 @@ use eframe::egui;
 use std::path::PathBuf;
 
 fn main() -> eframe::Result {
+    // as OsString: a file name that is not valid Unicode (NTFS allows it) must not end the app (args() would panic)
+    let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    let first = args.first().and_then(|a| a.to_str());
     // the installer after an installation or a move to another folder: the File Explorer item points to this exe
-    if std::env::args().nth(1).as_deref() == Some("--repair") {
-        shell_menu::repair();
+    if first == Some("--repair") {
+        shell_menu::repair_installed();
         return Ok(());
     }
-    // the installer, "File Explorer menu only": the items switched on (there is no window in Start to do it)
-    if std::env::args().nth(1).as_deref() == Some("--menu-on") {
-        let _ = shell_menu::set(true);
+    // the installer, "File Explorer menu only": the items switched on (there is no window in Start to do it); a
+    // failure gives a non-zero exit code
+    if first == Some("--menu-on") {
+        if shell_menu::set(true).is_err() {
+            std::process::exit(1);
+        }
         return Ok(());
     }
     // "Unlock" from the File Explorer menu: no window, only a notification at the end
-    let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().map(String::as_str) == Some(unlock::SWITCH) {
+    if first == Some(unlock::SWITCH) {
         let (paths, elevated) = unlock::args(&args[1..]);
-        if !paths.is_empty() {
+        if paths.is_empty() {
+            unlock::nothing_found();
+        } else {
             unlock::run(paths, elevated);
         }
         return Ok(());
     }
     // "Undo" of a take ownership: started as administrator by the window
-    if args.first().map(String::as_str) == Some(ownership::RESTORE_SWITCH) {
-        if let Some(file) = args[1..].iter().find(|a| !a.starts_with("--")) {
+    if first == Some(ownership::RESTORE_SWITCH) {
+        if let Some(file) = args[1..].iter().find(|a| !a.as_encoded_bytes().starts_with(b"--")) {
             ownership::restore(std::path::Path::new(file));
         }
         return Ok(());
     }
     // "Take ownership": the same without the window, as administrator
-    if args.first().map(String::as_str) == Some(ownership::SWITCH) {
-        let (paths, elevated) = ownership::args(&args[1..]);
-        if !paths.is_empty() {
+    if first == Some(ownership::SWITCH) {
+        let (paths, elevated) = unlock::args(&args[1..]);
+        if paths.is_empty() {
+            unlock::nothing_found();
+        } else {
             ownership::run(paths, elevated);
         }
         return Ok(());
     }
 
     // files / folders given on the command line (also the way a context-menu item will start it)
-    let paths: Vec<PathBuf> = std::env::args_os()
-        .skip(1)
+    let paths: Vec<PathBuf> = args
+        .into_iter()
         .map(PathBuf::from)
         .filter(|p| p.exists())
         .map(|p| std::path::absolute(&p).unwrap_or(p))

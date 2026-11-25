@@ -2,7 +2,7 @@
 //! "the file is open in another program"). It needs no administrator rights.
 
 use crate::i18n::tr;
-use std::os::windows::ffi::OsStrExt;
+use crate::procs::wide;
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{
@@ -106,10 +106,6 @@ fn collect_files(targets: &[PathBuf]) -> (Vec<PathBuf>, bool) {
     (out, false)
 }
 
-fn wide(p: &Path) -> Vec<u16> {
-    p.as_os_str().encode_wide().chain(Some(0)).collect()
-}
-
 pub fn from_wide(b: &[u16]) -> String {
     let n = b.iter().position(|&c| c == 0).unwrap_or(b.len());
     String::from_utf16_lossy(&b[..n])
@@ -117,6 +113,8 @@ pub fn from_wide(b: &[u16]) -> String {
 
 #[allow(non_upper_case_globals)]
 fn query(files: &[PathBuf]) -> Result<Vec<Locker>, String> {
+    // SAFETY: the session key buffer has the size the Restart Manager asks for (+1 for the NUL); the session is ended
+    // on every path after it started
     unsafe {
         let mut session = 0u32;
         let mut key = [0u16; CCH_RM_SESSION_KEY as usize + 1];
@@ -153,10 +151,13 @@ fn query(files: &[PathBuf]) -> Result<Vec<Locker>, String> {
     }
 }
 
+/// # Safety
+/// `session` must be a Restart Manager session started by this thread and not yet ended.
 unsafe fn list(session: u32, files: &[PathBuf]) -> Result<Vec<RM_PROCESS_INFO>, String> {
-    let wides: Vec<Vec<u16>> = files.iter().map(|f| wide(f)).collect();
+    let wides: Vec<Vec<u16>> = files.iter().map(wide).collect();
     for chunk in wides.chunks(1000) {
         let ptrs: Vec<*const u16> = chunk.iter().map(|w| w.as_ptr()).collect();
+        // SAFETY: `ptrs` points to NUL-terminated paths that live in `wides` through the call; its length is given
         let r = unsafe { RmRegisterResources(session, ptrs.len() as u32, ptrs.as_ptr(), 0, null(), 0, null()) };
         if r != ERROR_SUCCESS {
             return Err(format!("{}: {}", tr("Windows could not check the file", "Soubor se nepodařilo předat Windows ke kontrole"), crate::i18n::os_error(r)));
@@ -169,6 +170,7 @@ unsafe fn list(session: u32, files: &[PathBuf]) -> Result<Vec<RM_PROCESS_INFO>, 
         let mut count = infos.len() as u32;
         let mut reasons = 0u32;
         let buf = if infos.is_empty() { null_mut() } else { infos.as_mut_ptr() };
+        // SAFETY: `count` is the length of `infos` (null and 0 the first time, to learn the size)
         let r = unsafe { RmGetList(session, &mut needed, &mut count, buf, &mut reasons) };
         if r == ERROR_SUCCESS {
             infos.truncate(count as usize);
@@ -177,6 +179,7 @@ unsafe fn list(session: u32, files: &[PathBuf]) -> Result<Vec<RM_PROCESS_INFO>, 
         if r != ERROR_MORE_DATA {
             return Err(format!("{}: {}", tr("The list of programs could not be read", "Seznam programů se nepodařilo získat"), crate::i18n::os_error(r)));
         }
+        // SAFETY: RM_PROCESS_INFO is plain data, all zero is valid
         infos = vec![unsafe { std::mem::zeroed() }; needed as usize + 4];
     }
     Err(tr("The list of programs kept changing – try Refresh.", "Seznam programů se stále měnil – zkus Obnovit.").into())
@@ -185,6 +188,7 @@ unsafe fn list(session: u32, files: &[PathBuf]) -> Result<Vec<RM_PROCESS_INFO>, 
 /// The file cannot be opened only for us: someone has it open.
 pub fn is_in_use(p: &Path) -> bool {
     let w = wide(p);
+    // SAFETY: the path ends with a NUL; the handle is closed when it opened
     unsafe {
         let h = CreateFileW(w.as_ptr(), GENERIC_READ, 0, null(), OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, null_mut());
         if h == INVALID_HANDLE_VALUE {

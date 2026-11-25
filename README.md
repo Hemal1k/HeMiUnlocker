@@ -39,7 +39,9 @@ Windows 10 / 11, x64 and ARM64. Nothing else needs to be installed.
   - **Take ownership** – you become the owner of the file or the folder with everything in it and the Administrators
     get full control (after the question of Windows); also in the window (the shield button). HeMiUnlocker asks first,
     refuses the places Windows itself needs (the Windows folder, Program Files itself, the root of a drive …) and saves the
-    owners and permissions as they were – **Undo** in the window puts them back.
+    owners and permissions as they were – **Undo** in the window puts them back. (The owner is the account that
+    confirms the question of Windows: when a standard user types the password of another administrator, that account
+    becomes the owner – the notification names it.)
 - **Settings** (the gear): theme and language, kept in `%AppData%\HeMi\HeMiUnlocker\appearance.ini`.
 
 ## Building

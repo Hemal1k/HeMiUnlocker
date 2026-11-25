@@ -8,11 +8,12 @@
 //! folder, WindowsApps, the top folders of Program Files, ProgramData and the user folders), and writes the owner and
 //! the permissions of every item down before changing them – "Undo" in the window puts them back.
 
-use crate::i18n::{count, tr};
-use crate::unlock::{ELEVATED, name_of, relaunch_elevated, toast};
+use crate::i18n::{count, os_error, tr};
+use crate::procs::wide;
+use crate::unlock::{name_of, relaunch_elevated, toast};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
-use windows_sys::Win32::Foundation::{CloseHandle, ERROR_SUCCESS, HANDLE, LUID, LocalFree};
+use windows_sys::Win32::Foundation::{CloseHandle, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS, GetLastError, HANDLE, LUID, LocalFree};
 use windows_sys::Win32::Security::Authorization::{
     ConvertSecurityDescriptorToStringSecurityDescriptorW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
     ConvertStringSidToSidW, EXPLICIT_ACCESS_W, GRANT_ACCESS, GetNamedSecurityInfoW, NO_MULTIPLE_TRUSTEE, SE_FILE_OBJECT, SetEntriesInAclW,
@@ -21,7 +22,7 @@ use windows_sys::Win32::Security::Authorization::{
 use windows_sys::Win32::Security::{
     ACL, AdjustTokenPrivileges, DACL_SECURITY_INFORMATION, GetSecurityDescriptorControl, GetSecurityDescriptorDacl,
     GetSecurityDescriptorOwner, PROTECTED_DACL_SECURITY_INFORMATION, SE_DACL_PROTECTED, UNPROTECTED_DACL_SECURITY_INFORMATION,
-    GetTokenInformation, LUID_AND_ATTRIBUTES, LookupPrivilegeValueW, NO_INHERITANCE,
+    GetTokenInformation, LUID_AND_ATTRIBUTES, LookupAccountSidW, LookupPrivilegeValueW, NO_INHERITANCE,
     OWNER_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID, SE_PRIVILEGE_ENABLED, TOKEN_ADJUST_PRIVILEGES, TOKEN_PRIVILEGES, TOKEN_QUERY,
     TOKEN_USER, TokenUser,
 };
@@ -32,59 +33,90 @@ pub const SWITCH: &str = "--take-ownership";
 /// Puts back the owners and permissions written down by a take ownership (the file of that list follows).
 pub const RESTORE_SWITCH: &str = "--restore-ownership";
 
-fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(std::iter::once(0)).collect()
-}
-
-fn os_error(code: u32) -> String {
-    std::io::Error::from_raw_os_error(code as i32).to_string()
+/// The text of the last error of Windows on this thread.
+fn last_error() -> String {
+    std::io::Error::last_os_error().to_string()
 }
 
 /// The user of this process and the Administrators group, and the privileges to set the owner of anything.
 struct Who {
-    user: Vec<u8>,
+    /// The TOKEN_USER, in u64 so that it is aligned as the struct (it holds a pointer) needs.
+    user: Vec<u64>,
     admins: PSID,
 }
 
 impl Who {
     fn new() -> Result<Who, String> {
+        // SAFETY: the token is closed on every path once opened; the buffers passed with their sizes in bytes; the
+        // SID of the Administrators is freed by `Drop`
         unsafe {
             let mut token: HANDLE = null_mut();
             if OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY | TOKEN_ADJUST_PRIVILEGES, &mut token) == 0 {
-                return Err(os_error(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32));
+                return Err(last_error());
             }
             // the owner may be set to anyone (restore) and taken from anyone (take ownership) – administrators have both
+            let mut missing = None;
             for name in ["SeTakeOwnershipPrivilege", "SeRestorePrivilege"] {
                 let mut luid: LUID = std::mem::zeroed();
-                if LookupPrivilegeValueW(null(), wide(name).as_ptr(), &mut luid) != 0 {
+                let enabled = LookupPrivilegeValueW(null(), wide(name).as_ptr(), &mut luid) != 0 && {
                     let tp = TOKEN_PRIVILEGES { PrivilegeCount: 1, Privileges: [LUID_AND_ATTRIBUTES { Luid: luid, Attributes: SE_PRIVILEGE_ENABLED }] };
-                    AdjustTokenPrivileges(token, 0, &tp, 0, null_mut(), null_mut());
+                    // success with ERROR_NOT_ALL_ASSIGNED: the token does not have it
+                    AdjustTokenPrivileges(token, 0, &tp, 0, null_mut(), null_mut()) != 0 && GetLastError() != ERROR_NOT_ALL_ASSIGNED
+                };
+                if !enabled {
+                    missing.get_or_insert(name);
                 }
+            }
+            if missing.is_some() {
+                CloseHandle(token);
+                return Err(tr(
+                    "Windows did not give the rights to change owners – HeMiUnlocker has to run as administrator.",
+                    "Windows nedal oprávnění měnit vlastníky – HeMiUnlocker musí běžet jako správce.",
+                )
+                .into());
             }
             let mut size = 0u32;
             GetTokenInformation(token, TokenUser, null_mut(), 0, &mut size);
-            let mut user = vec![0u8; size.max(64) as usize];
-            let ok = GetTokenInformation(token, TokenUser, user.as_mut_ptr().cast(), user.len() as u32, &mut size) != 0;
+            let mut user = vec![0u64; (size.max(64) as usize).div_ceil(8)];
+            let ok = GetTokenInformation(token, TokenUser, user.as_mut_ptr().cast(), (user.len() * 8) as u32, &mut size) != 0;
             CloseHandle(token);
             if !ok {
-                return Err(os_error(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32));
+                return Err(last_error());
             }
             // the Administrators group by its SID: the same on every language of Windows
             let mut admins: PSID = null_mut();
             if ConvertStringSidToSidW(wide("S-1-5-32-544").as_ptr(), &mut admins) == 0 {
-                return Err(os_error(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32));
+                return Err(last_error());
             }
             Ok(Who { user, admins })
         }
     }
 
     fn user_sid(&self) -> PSID {
-        unsafe { (*(self.user.as_ptr() as *const TOKEN_USER)).User.Sid }
+        // SAFETY: `user` holds the TOKEN_USER written by GetTokenInformation, aligned for it (u64); the SID it points to
+        // is inside the same buffer, which lives as long as `self`
+        unsafe { (*self.user.as_ptr().cast::<TOKEN_USER>()).User.Sid }
+    }
+
+    /// The account that becomes the owner ("DOMAIN\name"), for the notification: when the administrator who confirmed
+    /// UAC is another account, the files are its now, not of the one signed in.
+    fn user_name(&self) -> Option<String> {
+        let (mut name, mut domain) = ([0u16; 256], [0u16; 256]);
+        let (mut n, mut d, mut kind) = (name.len() as u32, domain.len() as u32, 0);
+        // SAFETY: a valid SID; both buffers with their lengths in characters
+        let ok = unsafe { LookupAccountSidW(null(), self.user_sid(), name.as_mut_ptr(), &mut n, domain.as_mut_ptr(), &mut d, &mut kind) } != 0;
+        if !ok {
+            return None;
+        }
+        let (name, domain) = (crate::locks::from_wide(&name), crate::locks::from_wide(&domain));
+        Some(if domain.is_empty() { name } else { format!("{domain}\\{name}") })
     }
 
     /// One file or folder: the user its owner, the Administrators full control added to its permissions.
     fn take_one(&self, path: &Path) -> Result<(), String> {
-        let name = wide(&path.display().to_string());
+        let name = wide(path);
+        // SAFETY: the path ends with a NUL; the SIDs are valid while `self` lives; the descriptor and the new DACL are
+        // freed with LocalFree after their last use
         unsafe {
             let r = SetNamedSecurityInfoW(name.as_ptr(), SE_FILE_OBJECT, OWNER_SECURITY_INFORMATION, self.user_sid(), null_mut(), null(), null());
             if r != ERROR_SUCCESS {
@@ -123,18 +155,50 @@ impl Who {
         Ok(())
     }
 
-    /// A folder with everything in it (links are left alone, see [`walk`]); goes on past an item that fails, the first
-    /// failure is told.
-    fn take_tree(&self, path: &Path, first_error: &mut Option<String>, saved: &mut String) {
+    /// A folder with everything in it (links are left alone, see [`walk`]); goes on past an item that fails.
+    fn take_tree(&self, path: &Path, tally: &mut Tally, saved: &mut String) {
         walk(path, &mut |item| {
             // the owner and the permissions as they were, to put them back
             if let Some(sddl) = sddl_of(item) {
                 saved.push_str(&format!("{sddl}\t{}\n", item.display()));
             }
-            if let Err(e) = self.take_one(item) {
-                first_error.get_or_insert_with(|| format!("{}: {e}", item.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| item.display().to_string())));
+            match self.take_one(item) {
+                Ok(()) => tally.done += 1,
+                Err(e) => {
+                    tally.failed += 1;
+                    tally.first_error.get_or_insert_with(|| {
+                        format!("{}: {e}", item.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| item.display().to_string()))
+                    });
+                }
             }
         });
+    }
+}
+
+/// How a take ownership went: the items done, the ones that failed and the first failure.
+#[derive(Default)]
+struct Tally {
+    done: usize,
+    failed: usize,
+    first_error: Option<String>,
+}
+
+impl Tally {
+    /// The failure told: alone for one item, with the counts for a folder ("9 999 of 10 000 items, 1 failed: …").
+    fn message(&self) -> Option<String> {
+        let first = self.first_error.as_ref()?;
+        if self.done == 0 && self.failed <= 1 {
+            return Some(first.clone());
+        }
+        // Czech in the genitive after "z" / "u": 1 položky, 2 položek, 5 položek
+        let (items, polozky) = (["{n} item", "{n} items"], ["{n} položky", "{n} položek", "{n} položek"]);
+        Some(
+            tr("Taken for {done} of {all}, {failed} failed: {first}", "Převzato u {done} z {all}, nepodařilo se u {failed}: {first}")
+                .replace("{done}", &self.done.to_string())
+                .replace("{all}", &count(self.done + self.failed, items, polozky))
+                .replace("{failed}", &count(self.failed, items, polozky))
+                .replace("{first}", first),
+        )
     }
 }
 
@@ -162,6 +226,7 @@ fn walk(path: &Path, visit: &mut dyn FnMut(&Path)) {
 
 impl Drop for Who {
     fn drop(&mut self) {
+        // SAFETY: made by ConvertStringSidToSidW, freed once here
         unsafe { LocalFree(self.admins) };
     }
 }
@@ -187,10 +252,17 @@ pub fn run(targets: Vec<PathBuf>, elevated: bool) {
     let failed: Vec<String> = targets.iter().filter_map(|t| take(t).err()).collect();
     let name = name_of(&targets);
     if failed.is_empty() {
-        toast(
-            tr("Ownership taken", "Vlastnictví převzato"),
-            &tr("You own {name} now and the administrators have full control.", "{name}: vlastníkem jsi teď ty a správci mají plný přístup.").replace("{name}", &name),
-        );
+        // the account named: with UAC confirmed by another administrator, the owner is that account
+        let owner = Who::new().ok().and_then(|w| w.user_name());
+        let text = match owner {
+            Some(who) => tr(
+                "{name}: the owner is {who} now and the administrators have full control.",
+                "{name}: vlastníkem je teď {who} a správci mají plný přístup.",
+            )
+            .replace("{who}", &who),
+            None => tr("You own {name} now and the administrators have full control.", "{name}: vlastníkem jsi teď ty a správci mají plný přístup.").into(),
+        };
+        toast(tr("Ownership taken", "Vlastnictví převzato"), &text.replace("{name}", &name));
     } else {
         toast(tr("Ownership not taken", "Vlastnictví nepřevzato"), &failed.join("\n"));
     }
@@ -207,20 +279,26 @@ fn take(path: &Path) -> Result<(), String> {
         .replace("{name}", &name_of(&[path.to_path_buf()])));
     }
     let who = Who::new()?;
-    let mut first_error = None;
+    let mut tally = Tally::default();
     let mut saved = String::from("# HeMiUnlocker: the owners and permissions before taking ownership (SDDL, tab, path)\n");
-    who.take_tree(path, &mut first_error, &mut saved);
+    who.take_tree(path, &mut tally, &mut saved);
+    let mut undo_error = None;
     if let Some(dir) = undo_dir() {
         let _ = std::fs::create_dir_all(&dir);
         // only administrators may write there: "Undo" runs as administrator and must not take a list another program
         // of the user wrote
-        let _ = restore_one(&dir, UNDO_DIR_SDDL);
+        let protected = restore_one(&dir, UNDO_DIR_SDDL);
         let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis()).unwrap_or(0);
-        if let Err(e) = std::fs::write(dir.join(format!("ownership-{stamp}.txt")), saved) {
-            first_error.get_or_insert_with(|| format!("{}: {e}", tr("The list to undo it could not be saved", "Seznam pro vrácení nešel uložit")));
+        let written = protected.and_then(|()| std::fs::write(dir.join(format!("ownership-{stamp}.txt")), saved).map_err(|e| e.to_string()));
+        if let Err(e) = written {
+            undo_error = Some(format!("{}: {e}", tr("The list to undo it could not be saved", "Seznam pro vrácení nešel uložit")));
         }
     }
-    first_error.map_or(Ok(()), Err)
+    match (tally.message(), undo_error) {
+        (None, None) => Ok(()),
+        (Some(a), Some(b)) => Err(format!("{a}\n{b}")),
+        (Some(e), None) | (None, Some(e)) => Err(e),
+    }
 }
 
 /// Started from the window: the same as the File Explorer item (a process of its own, as administrator). False only
@@ -309,7 +387,7 @@ fn confirm(targets: &[PathBuf]) -> bool {
 
 /// The owner and the permissions of one item as SDDL.
 fn sddl_of(path: &Path) -> Option<String> {
-    let name = wide(&path.display().to_string());
+    let name = wide(path);
     let info = OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION;
     // SAFETY: the out pointers are valid; the descriptor and the string are freed with LocalFree; the string ends with
     // a NUL and `len` is its length in characters
@@ -337,14 +415,14 @@ fn sddl_of(path: &Path) -> Option<String> {
 
 /// Puts one SDDL back on one item: the owner and the permissions, their protection from inheritance as it was.
 fn restore_one(path: &Path, sddl: &str) -> Result<(), String> {
-    let name = wide(&path.display().to_string());
+    let name = wide(path);
     let text = wide(sddl);
     // SAFETY: the descriptor made from the string is freed with LocalFree; owner and DACL point into it and are used
     // before that
     unsafe {
         let mut sd: PSECURITY_DESCRIPTOR = null_mut();
         if ConvertStringSecurityDescriptorToSecurityDescriptorW(text.as_ptr(), SDDL_REVISION_1, &mut sd, null_mut()) == 0 {
-            return Err(os_error(std::io::Error::last_os_error().raw_os_error().unwrap_or(0) as u32));
+            return Err(last_error());
         }
         let (mut owner, mut defaulted): (PSID, i32) = (null_mut(), 0);
         GetSecurityDescriptorOwner(sd, &mut owner, &mut defaulted);
@@ -376,7 +454,13 @@ pub fn restore(file: &Path) {
     }
     let Ok(text) = std::fs::read_to_string(file) else { return };
     // the privileges to set any owner again
-    let _who = Who::new();
+    let _who = match Who::new() {
+        Ok(w) => w,
+        Err(e) => {
+            toast(tr("Ownership not put back", "Vlastnictví nevráceno"), &e);
+            return;
+        }
+    };
     let mut failed = Vec::new();
     let mut done = 0;
     for line in text.lines().filter(|l| !l.starts_with('#')) {
@@ -401,18 +485,6 @@ pub fn restore(file: &Path) {
     } else {
         toast(tr("Ownership not fully put back", "Vlastnictví nevráceno úplně"), &failed.into_iter().take(3).collect::<Vec<_>>().join("\n"));
     }
-}
-
-pub fn args(rest: &[String]) -> (Vec<PathBuf>, bool) {
-    let elevated = rest.iter().any(|a| a == ELEVATED);
-    let paths = rest
-        .iter()
-        .filter(|a| a.as_str() != ELEVATED)
-        .map(PathBuf::from)
-        .filter(|p| p.exists())
-        .map(|p| std::path::absolute(&p).unwrap_or(p))
-        .collect();
-    (paths, elevated)
 }
 
 #[cfg(test)]

@@ -7,16 +7,14 @@
 use crate::i18n::{count, tr};
 use crate::locks::{self, AppKind};
 use crate::procs::{self, wide};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Shell::{
     NIF_ICON, NIF_INFO, NIF_TIP, NIIF_ERROR, NIIF_INFO, NIIF_LARGE_ICON, NIIF_WARNING, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
-    SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW, Shell_NotifyIconW,
+    Shell_NotifyIconW,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateWindowExW, DestroyWindow, HWND_MESSAGE, IDI_APPLICATION, LoadIconW, SW_SHOWNORMAL,
-};
+use windows_sys::Win32::UI::WindowsAndMessaging::{CreateWindowExW, DestroyWindow, HWND_MESSAGE, IDI_APPLICATION, LoadIconW};
 
 /// The switch of the File Explorer item; `--elevated` marks the second try as administrator.
 pub const SWITCH: &str = "--unlock";
@@ -78,6 +76,7 @@ fn unlock(targets: &[PathBuf]) -> (Outcome, Vec<String>) {
             ordinary.push(l.clone());
         }
     }
+    // a failure to end one is not lost: the second scan below names what still holds the file in the notification
     for l in &ordinary {
         if !procs::wait_exit(l.pid, 5000) {
             let _ = procs::terminate(l.pid, l.start_time);
@@ -101,22 +100,9 @@ fn unlock(targets: &[PathBuf]) -> (Outcome, Vec<String>) {
     (outcome, spared_names)
 }
 
-/// HeMiUnlocker again as administrator with the same files; false when Windows (or the user) said no.
+/// HeMiUnlocker again as administrator with the same files and `switch`; false when Windows (or the user) said no.
 pub fn relaunch_elevated(switch: &str, targets: &[PathBuf]) -> bool {
-    let Ok(exe) = std::env::current_exe() else { return false };
-    let mut params = format!("{switch} {ELEVATED}");
-    for t in targets {
-        params.push_str(&format!(" \"{}\"", t.display()));
-    }
-    let (verb, exe, params) = (wide("runas"), wide(&exe.to_string_lossy()), wide(&params));
-    let mut info: SHELLEXECUTEINFOW = unsafe { std::mem::zeroed() };
-    info.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
-    info.fMask = SEE_MASK_NOASYNC;
-    info.lpVerb = verb.as_ptr();
-    info.lpFile = exe.as_ptr();
-    info.lpParameters = params.as_ptr();
-    info.nShow = SW_SHOWNORMAL;
-    unsafe { ShellExecuteExW(&mut info) != 0 }
+    procs::relaunch_elevated(Some(switch), targets)
 }
 
 pub fn name_of(targets: &[PathBuf]) -> String {
@@ -141,8 +127,11 @@ pub fn toast(title: &str, text: &str) -> bool {
     use windows::core::HSTRING;
     // the app id with the name and the icon of HeMiUnlocker (the icon as a file next to the settings of the user)
     let icon = std::env::var_os("LOCALAPPDATA").map(|d| PathBuf::from(d).join("HeMi").join("HeMiUnlocker").join("HeMiUnlocker.png"));
+    // written by a run without administrator rights only: the folder of the user may be changed by any program of the
+    // user (a link there would make an administrator write somewhere else); the toast works without the icon too
     if let Some(icon) = &icon
         && !icon.exists()
+        && !procs::self_elevated()
     {
         let _ = std::fs::create_dir_all(icon.parent().unwrap());
         let _ = std::fs::write(icon, include_bytes!("../assets/HeMiUnlocker.png"));
@@ -159,6 +148,7 @@ pub fn toast(title: &str, text: &str) -> bool {
         esc(text)
     );
     let shown = (|| -> windows::core::Result<()> {
+        // SAFETY: no pointers; called again on a thread already set up only returns a status, which does not matter
         unsafe {
             let _ = RoInitialize(RO_INIT_MULTITHREADED);
         }
@@ -210,6 +200,8 @@ fn notify(targets: &[PathBuf], outcome: Outcome, spared: &[String]) {
     if toast(title, &text) {
         return;
     }
+    // SAFETY: NOTIFYICONDATAW is plain data (all zero is valid) with `cbSize` set; its texts are cut to their buffers by
+    // `copy`; the window and the icon are removed before the end
     unsafe {
         // an invisible window that owns the icon for the time of the notification
         let class = wide("STATIC");
@@ -241,15 +233,16 @@ fn copy<const N: usize>(to: &mut [u16; N], text: &str) {
     to[w.len()] = 0;
 }
 
-/// The files after `--unlock [--elevated]`.
-pub fn args(rest: &[String]) -> (Vec<PathBuf>, bool) {
+/// The files after `--unlock [--elevated]` (or `--take-ownership [--elevated]`).
+pub fn args(rest: &[std::ffi::OsString]) -> (Vec<PathBuf>, bool) {
     let elevated = rest.iter().any(|a| a == ELEVATED);
-    let paths = rest
-        .iter()
-        .filter(|a| a.as_str() != ELEVATED)
-        .map(PathBuf::from)
-        .filter(|p| Path::new(p).exists())
-        .map(|p| std::path::absolute(&p).unwrap_or(p))
-        .collect();
-    (paths, elevated)
+    (procs::path_args(rest), elevated)
+}
+
+/// Nothing of the command line exists (any more): told, else the run without the window would end without a word.
+pub fn nothing_found() {
+    toast(
+        "HeMiUnlocker",
+        tr("The file or folder was not found – it may have been moved or deleted.", "Soubor ani složka se nenašly – možná se přesunuly nebo smazaly."),
+    );
 }

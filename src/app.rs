@@ -141,6 +141,8 @@ pub struct HeMiUnlockerApp {
     focused: bool,
     menu_on: bool,
     about: bool,
+    /// The third-party notices open under the links of About.
+    licences: bool,
 }
 
 impl HeMiUnlockerApp {
@@ -178,6 +180,7 @@ impl HeMiUnlockerApp {
             focused: true,
             menu_on: crate::shell_menu::is_on(),
             about: false,
+            licences: false,
         };
         if !targets.is_empty() {
             app.set_targets(&cc.egui_ctx, targets);
@@ -390,7 +393,8 @@ impl HeMiUnlockerApp {
                 });
             });
         }
-        ui.add_space(14.0);        section(ui, &p, tr("File Explorer", "Průzkumník souborů"));
+        ui.add_space(14.0);
+        section(ui, &p, tr("File Explorer", "Průzkumník souborů"));
         card(ui, &p, |ui| {
             row_layout(ui, 44.0, |ui| {
                 ui.label(RichText::new(tr("Context menu", "Kontextová nabídka")).size(14.0).color(p.text));
@@ -401,8 +405,10 @@ impl HeMiUnlockerApp {
                     }
                 });
             });
-        });        ui.add_space(14.0);
-        section(ui, &p, tr("About", "O aplikaci"));        ui.spacing_mut().item_spacing.y = 4.0;
+        });
+        ui.add_space(14.0);
+        section(ui, &p, tr("About", "O aplikaci"));
+        ui.spacing_mut().item_spacing.y = 4.0;
         let value = |ui: &mut egui::Ui, label: &str, value: &str| {
             card(ui, &p, |ui| {
                 row_layout(ui, 44.0, |ui| {
@@ -433,6 +439,15 @@ impl HeMiUnlockerApp {
             && let Some((_, _, act)) = links.into_iter().nth(i)
         {
             acts.push(act);
+        }
+        if self.licences {
+            ui.add_space(10.0);
+            card(ui, &p, |ui| {
+                // the table of the notices keeps its columns: scrolled sideways in a narrow window
+                egui::ScrollArea::both().id_salt("licences").max_height(ui.available_height().max(160.0)).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(include_str!("../assets/ThirdPartyNotices.txt")).monospace().size(11.0).color(p.text2)).extend());
+                });
+            });
         }
     }
     fn target_card(&self, ui: &mut egui::Ui, acts: &mut Vec<Action>) {
@@ -835,17 +850,20 @@ impl HeMiUnlockerApp {
         for a in acts {
             match a {
                 Action::SetLook(l) => {
-                    l.save();
+                    // applied anyway; only keeping it for the next start failed
+                    if let Err(e) = l.save() {
+                        self.toast(format!("{}: {e}", tr("The appearance could not be saved", "Vzhled se nepodařilo uložit")), Tone::Caution);
+                    }
                     crate::i18n::set(l.language);
                     self.look = l;
                     // the new colors at once, not after the next look at the theme
                     self.theme_checked = Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
                 }
                 Action::PickFiles | Action::PickFolder => {
-                    if let Some(t) = self.pick(matches!(a, Action::PickFolder)) {
-                        if !t.is_empty() {
-                            self.set_targets(ctx, t);
-                        }
+                    if let Some(t) = self.pick(matches!(a, Action::PickFolder))
+                        && !t.is_empty()
+                    {
+                        self.set_targets(ctx, t);
                     }
                 }
                 Action::Rescan => self.rescan(ctx),
@@ -855,7 +873,7 @@ impl HeMiUnlockerApp {
                 Action::AskCloseAll(rows) => self.confirm = Some(Confirm::CloseAll(rows)),
                 Action::ShowInExplorer(path) => procs::show_in_explorer(&path),
                 Action::RelaunchAsAdmin => {
-                    if procs::relaunch_as_admin(&self.targets) {
+                    if procs::relaunch_elevated(None, &self.targets) {
                         ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     } else {
                         self.toast(tr("Running as administrator was cancelled.", "Spuštění jako správce bylo zrušeno."), Tone::Caution);
@@ -875,13 +893,9 @@ impl HeMiUnlockerApp {
                     }
                 }
                 Action::Launcher => crate::launcher::open(),
-                Action::OpenLicences => {
-                    let file = std::env::temp_dir().join("HeMiUnlocker-ThirdPartyNotices.txt");
-                    match std::fs::write(&file, include_str!("../assets/ThirdPartyNotices.txt")) {
-                        Ok(()) => procs::shell_open(&file.display().to_string()),
-                        Err(e) => self.toast(format!("{}: {e}", tr("The licenses cannot be opened", "Licence nejde otevřít")), Tone::Critical),
-                    }
-                }
+                // shown in the window (no file in %TEMP% opened by its app – also as administrator, where that folder
+                // and the app of .txt files are the user's to change)
+                Action::OpenLicences => self.licences = !self.licences,
                 Action::ToggleMenu => match crate::shell_menu::set(!self.menu_on) {
                     Ok(()) => {
                         self.menu_on = !self.menu_on;
@@ -964,12 +978,14 @@ impl HasWindowHandle for Parent {
     fn window_handle(&self) -> Result<WindowHandle<'_>, HandleError> {
         let hwnd = std::num::NonZeroIsize::new(self.0).ok_or(HandleError::Unavailable)?;
         let raw = RawWindowHandle::Win32(raw_window_handle::Win32WindowHandle::new(hwnd));
+        // SAFETY: the window of the app, alive while the file dialog that borrows it is open (the dialog is modal)
         Ok(unsafe { WindowHandle::borrow_raw(raw) })
     }
 }
 
 impl HasDisplayHandle for Parent {
     fn display_handle(&self) -> Result<DisplayHandle<'_>, HandleError> {
+        // SAFETY: the display of Windows has no data of its own, it is always valid
         Ok(unsafe { DisplayHandle::borrow_raw(RawDisplayHandle::Windows(WindowsDisplayHandle::new())) })
     }
 }

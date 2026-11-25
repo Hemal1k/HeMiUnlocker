@@ -29,12 +29,14 @@ impl Look {
         l
     }
 
-    pub fn save(&self) {
-        if let Some(f) = file() {
-            if let Some(dir) = f.parent() {
-                let _ = std::fs::create_dir_all(dir);
-            }
-            let _ = std::fs::write(f, format!("Theme={}\nLanguage={}\n", self.theme, self.language));
+    /// Written to a new file first and then moved over the old one: a crash halfway leaves the old settings whole.
+    pub fn save(&self) -> std::io::Result<()> {
+        let Some(f) = file() else { return Ok(()) };
+        if let Some(dir) = f.parent() {
+            std::fs::create_dir_all(dir)?;
         }
+        let tmp = f.with_extension("ini.tmp");
+        std::fs::write(&tmp, format!("Theme={}\nLanguage={}\n", self.theme, self.language))?;
+        std::fs::rename(&tmp, &f)
     }
 }

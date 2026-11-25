@@ -18,18 +18,23 @@ use windows_sys::Win32::UI::Shell::ShellExecuteW;
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::BOOL;
 
-pub fn wide(s: &str) -> Vec<u16> {
-    s.encode_utf16().chain(Some(0)).collect()
+/// A text or a path for Windows: UTF-16 with a NUL at the end (a path that is not valid Unicode stays as it is).
+pub fn wide(s: impl AsRef<std::ffi::OsStr>) -> Vec<u16> {
+    use std::os::windows::ffi::OsStrExt;
+    s.as_ref().encode_wide().chain(Some(0)).collect()
 }
 
+/// A handle this process owns; closed once, when it goes.
 struct Handle(HANDLE);
 impl Drop for Handle {
     fn drop(&mut self) {
+        // SAFETY: the handle came from a successful Open… / Create… call and is closed only here
         unsafe { CloseHandle(self.0) };
     }
 }
 
 fn open(pid: u32, access: u32) -> Option<Handle> {
+    // SAFETY: no pointers; a null result is checked
     let h = unsafe { OpenProcess(access, 0, pid) };
     if h.is_null() { None } else { Some(Handle(h)) }
 }
@@ -38,6 +43,7 @@ pub fn exe_path(pid: u32) -> Option<String> {
     let h = open(pid, PROCESS_QUERY_LIMITED_INFORMATION)?;
     let mut buf = [0u16; 2048];
     let mut len = buf.len() as u32;
+    // SAFETY: a valid handle; `len` is the size of the buffer in characters and gets the length written
     let ok = unsafe { QueryFullProcessImageNameW(h.0, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut len) };
     (ok != 0).then(|| String::from_utf16_lossy(&buf[..len as usize]))
 }
@@ -58,6 +64,8 @@ pub fn elevation(pid: u32) -> Elevation {
 }
 
 fn token_elevation(process: HANDLE) -> Elevation {
+    // SAFETY: a valid process handle; the token is closed by `Handle`; the out buffer is a TOKEN_ELEVATION of the size
+    // given
     unsafe {
         let mut token: HANDLE = null_mut();
         if OpenProcessToken(process, TOKEN_QUERY, &mut token) == 0 {
@@ -84,14 +92,16 @@ fn token_elevation(process: HANDLE) -> Elevation {
 }
 
 pub fn self_elevated() -> bool {
+    // SAFETY: the pseudo handle of this process (nothing to close)
     token_elevation(unsafe { GetCurrentProcess() }) == Elevation::Elevated
 }
 
 fn creation_time(h: HANDLE) -> Option<u64> {
+    // SAFETY: a valid process handle and four valid out pointers (FILETIME is plain data, zeroed is valid)
     unsafe {
         let (mut c, mut e, mut k, mut u): (FILETIME, FILETIME, FILETIME, FILETIME) = (zeroed(), zeroed(), zeroed(), zeroed());
         (GetProcessTimes(h, &mut c, &mut e, &mut k, &mut u) != 0)
-            .then(|| ((c.dwHighDateTime as u64) << 32) | c.dwLowDateTime as u64)
+            .then_some((u64::from(c.dwHighDateTime) << 32) | u64::from(c.dwLowDateTime))
     }
 }
 
@@ -146,6 +156,7 @@ fn explorer() -> PathBuf {
 }
 
 fn open_error() -> String {
+    // SAFETY: no arguments; the error of the call just made on this thread
     match unsafe { GetLastError() } {
         // already administrator: Windows protects the program (an antivirus, for example)
         ERROR_ACCESS_DENIED if self_elevated() => {
@@ -169,15 +180,20 @@ pub fn post_close(pid: u32) -> usize {
         windows: Vec<HWND>,
     }
     unsafe extern "system" fn each(hwnd: HWND, lp: LPARAM) -> BOOL {
+        // SAFETY: `lp` is the `Found` below, alive and borrowed by nobody else while EnumWindows runs
         let found = unsafe { &mut *(lp as *mut Found) };
         let mut p = 0u32;
+        // SAFETY: a window handle given by EnumWindows and a valid out pointer
         unsafe { GetWindowThreadProcessId(hwnd, &mut p) };
+        // SAFETY: the same window handle (a window gone meanwhile only makes the calls fail)
         if p == found.pid && unsafe { IsWindowVisible(hwnd) } != 0 && unsafe { GetWindow(hwnd, GW_OWNER) }.is_null() {
             found.windows.push(hwnd);
         }
         1
     }
     let mut found = Found { pid, windows: Vec::new() };
+    // SAFETY: `found` lives through EnumWindows (it calls `each` only during the call); posting WM_CLOSE to a window
+    // that is gone fails harmlessly
     unsafe {
         EnumWindows(Some(each), &mut found as *mut Found as LPARAM);
         // its "Save changes?" dialog may come to the front
@@ -192,7 +208,9 @@ pub fn post_close(pid: u32) -> usize {
 /// Waits until the process ends; true when it is gone.
 pub fn wait_exit(pid: u32, ms: u32) -> bool {
     match open(pid, PROCESS_SYNCHRONIZE) {
+        // SAFETY: a valid handle with SYNCHRONIZE access
         Some(h) => unsafe { WaitForSingleObject(h.0, ms) == WAIT_OBJECT_0 },
+        // SAFETY: no arguments; the error of OpenProcess just above
         None => (unsafe { GetLastError() }) == ERROR_INVALID_PARAMETER,
     }
 }
@@ -207,6 +225,7 @@ pub fn terminate(pid: u32, start_time: u64) -> Result<(), String> {
         )
         .into());
     }
+    // SAFETY: a valid handle with PROCESS_TERMINATE and SYNCHRONIZE access, checked to be the same process above
     unsafe {
         if TerminateProcess(h.0, 1) == 0 {
             return Err(open_error());
@@ -217,6 +236,7 @@ pub fn terminate(pid: u32, start_time: u64) -> Result<(), String> {
 }
 
 pub fn running(exe_name: &str) -> bool {
+    // SAFETY: the snapshot is checked and closed by `Handle`; the entry is plain data with `dwSize` set as required
     unsafe {
         let snap = CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0);
         if snap == INVALID_HANDLE_VALUE {
@@ -255,21 +275,55 @@ pub fn show_in_explorer(path: &str) {
 /// Opens a file or a link (mailto:, a text file …) in its default app.
 pub fn shell_open(target: &str) {
     let (verb, t) = (wide("open"), wide(target));
+    // SAFETY: both strings end with a NUL and live through the call
     unsafe { ShellExecuteW(null_mut(), verb.as_ptr(), t.as_ptr(), null(), null(), SW_SHOWNORMAL) };
 }
 
-/// Starts HeMiUnlocker again as administrator (Windows asks) with the same files; true when it started.
-pub fn relaunch_as_admin(targets: &[PathBuf]) -> bool {
+/// One argument of a command line in quotes, read back the same by `CommandLineToArgvW` and Rust: the backslashes at
+/// the end are doubled, else `"D:\"` would end in an escaped quote. (A path cannot hold a `"` itself.)
+pub fn quote_arg(s: &str) -> String {
+    let trailing = s.len() - s.trim_end_matches('\\').len();
+    format!("\"{s}{}\"", "\\".repeat(trailing))
+}
+
+/// HeMiUnlocker again as administrator (Windows asks) with the same files: with `switch` (and `--elevated`) for the
+/// work without the window, else the window. False when Windows (or the user) said no.
+pub fn relaunch_elevated(switch: Option<&str>, targets: &[PathBuf]) -> bool {
+    use windows_sys::Win32::UI::Shell::{SEE_MASK_NOASYNC, SHELLEXECUTEINFOW, ShellExecuteExW};
     let Ok(exe) = std::env::current_exe() else { return false };
-    let params: Vec<String> = targets.iter().map(|t| format!("\"{}\"", t.display())).collect();
-    let (verb, exe, params) = (wide("runas"), wide(&exe.to_string_lossy()), wide(&params.join(" ")));
-    let r = unsafe { ShellExecuteW(null_mut(), verb.as_ptr(), exe.as_ptr(), params.as_ptr(), null(), SW_SHOWNORMAL) };
-    r as isize > 32
+    let mut params: Vec<String> = switch.map(|s| vec![s.to_string(), crate::unlock::ELEVATED.to_string()]).unwrap_or_default();
+    params.extend(targets.iter().map(|t| quote_arg(&t.display().to_string())));
+    let (verb, exe, params) = (wide("runas"), wide(&exe), wide(params.join(" ")));
+    // SAFETY: SHELLEXECUTEINFOW is plain data (all zero is valid); the strings it points to end with a NUL and live
+    // through the call
+    unsafe {
+        let mut info: SHELLEXECUTEINFOW = zeroed();
+        info.cbSize = size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOASYNC;
+        info.lpVerb = verb.as_ptr();
+        info.lpFile = exe.as_ptr();
+        info.lpParameters = params.as_ptr();
+        info.nShow = SW_SHOWNORMAL;
+        ShellExecuteExW(&mut info) != 0
+    }
+}
+
+/// The files and folders of a command line that exist, as absolute paths (`--…` switches left out); also names that
+/// are not valid Unicode (NTFS allows them).
+pub fn path_args(rest: &[std::ffi::OsString]) -> Vec<PathBuf> {
+    rest.iter()
+        .filter(|a| !a.as_encoded_bytes().starts_with(b"--"))
+        .map(PathBuf::from)
+        .filter(|p| p.exists())
+        .map(|p| std::path::absolute(&p).unwrap_or(p))
+        .collect()
 }
 
 /// The icon of a program as RGBA pixels.
 pub fn exe_icon(path: &str, size: i32) -> Option<(Vec<u8>, usize, usize)> {
     let w = wide(path);
+    // SAFETY: the path ends with a NUL; one icon is asked for with one out handle and one out id; the icon is destroyed
+    // after its pixels are read
     unsafe {
         let mut icon: HICON = null_mut();
         let mut id = 0u32;
@@ -283,7 +337,11 @@ pub fn exe_icon(path: &str, size: i32) -> Option<(Vec<u8>, usize, usize)> {
     }
 }
 
+/// # Safety
+/// `icon` must be a valid icon handle.
 unsafe fn icon_pixels(icon: HICON) -> Option<(Vec<u8>, usize, usize)> {
+    // SAFETY: the bitmaps of the icon are freed once; the pixel buffer holds w × h × 4 bytes, as the 32-bit top-down
+    // BITMAPINFO asks GetDIBits to write
     unsafe {
         let mut info: ICONINFO = zeroed();
         if GetIconInfo(icon, &mut info) == 0 {
@@ -323,8 +381,8 @@ unsafe fn icon_pixels(icon: HICON) -> Option<(Vec<u8>, usize, usize)> {
         if lines == 0 {
             return None;
         }
-        let has_alpha = px.chunks_exact(4).any(|c| c[3] != 0);
-        for c in px.chunks_exact_mut(4) {
+        let has_alpha = px.as_chunks::<4>().0.iter().any(|c| c[3] != 0);
+        for c in px.as_chunks_mut::<4>().0 {
             c.swap(0, 2); // BGRA -> RGBA
             if !has_alpha {
                 c[3] = 255;
@@ -337,6 +395,13 @@ unsafe fn icon_pixels(icon: HICON) -> Option<(Vec<u8>, usize, usize)> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn arguments_quoted_for_the_command_line() {
+        assert_eq!(quote_arg(r"D:\"), r#""D:\\""#);
+        assert_eq!(quote_arg(r"C:\a b\c.txt"), r#""C:\a b\c.txt""#);
+        assert_eq!(quote_arg(r"C:\a\\"), r#""C:\a\\\\""#);
+    }
 
     #[test]
     fn explorer_by_its_full_path() {
