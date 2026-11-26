@@ -98,6 +98,10 @@ fn remove(key: &str) -> Result<(), String> {
 /// The items on (to this exe) or off.
 pub fn set(on: bool) -> Result<(), String> {
     let exe = if on { Some(exe().ok_or(tr("Could not find out where HeMiUnlocker is.", "Nepodařilo se zjistit, kde je HeMiUnlocker."))?) } else { None };
+    // the menu off: "Take ownership" in the new menu goes with it
+    if !on {
+        set_runas(false)?;
+    }
     set_for(exe.as_deref())
 }
 
@@ -134,6 +138,56 @@ fn configured_exe() -> Option<PathBuf> {
         .find_map(|k| read(k, None))?;
     let rest = cmd.strip_prefix('"')?;
     Some(PathBuf::from(&rest[..rest.find('"')?]))
+}
+
+/// "Take ownership" of a folder right in the new context menu of Windows 11. The new menu shows the static verb named
+/// "runas" (the name of "Run as administrator") without a package; a verb of any other name only under "Show more
+/// options" (tried on build 26300, 2026-11-26). Not documented by Microsoft, so optional and off by default. Only for
+/// folders: on files "runas" is "Run as administrator" of programs, and a whole drive is refused anyway. Windows asks
+/// for administrator rights by itself (the verb runas). In the registry of the user only.
+/// (The classic menu of Windows 10 – the class {86ca1aa0-…} with an empty InprocServer32 – is ignored by the new menu
+/// of these builds, so it is not offered any more.)
+const RUNAS: &str = r"Software\Classes\Directory\shell\runas";
+
+/// The verb is there and it is ours (another program may use the same place).
+pub fn runas_is_on() -> bool {
+    read(&format!(r"{RUNAS}\command"), None).is_some_and(|c| c.to_ascii_lowercase().contains("hemiunlocker"))
+}
+
+pub fn set_runas(on: bool) -> Result<(), String> {
+    if !on {
+        return if runas_is_on() { remove(RUNAS) } else { Ok(()) };
+    }
+    // a verb of another program (a "Take ownership" tweak) is not overwritten
+    if read(&format!(r"{RUNAS}\command"), None).is_some() && !runas_is_on() {
+        return Err(tr(
+            "Another program already uses this place of the menu (\"runas\" of folders).",
+            "Toto místo nabídky už používá jiný program („runas“ u složek).",
+        )
+        .into());
+    }
+    let exe = exe().ok_or("HeMiUnlocker.exe ?")?;
+    runas_to(&exe)
+}
+
+/// The verb "runas" of folders to `exe`.
+fn runas_to(exe: &str) -> Result<(), String> {
+    let text = tr("Take ownership", "Převzít vlastnictví");
+    write(RUNAS, None, text)?;
+    write(RUNAS, Some("MUIVerb"), text)?;
+    write(RUNAS, Some("HasLUAShield"), "")?;
+    write(RUNAS, Some("NoWorkingDirectory"), "")?;
+    write(RUNAS, Some("Icon"), &format!("\"{exe}\",0"))?;
+    write(&format!(r"{RUNAS}\command"), None, &format!("\"{exe}\" {} \"%1\"", crate::ownership::SWITCH))
+}
+
+/// Windows 11 (build 22000 and newer), where the new context menu hides the item.
+pub fn is_windows_11() -> bool {
+    read_in(HKEY_LOCAL_MACHINE, r"SOFTWARE\Microsoft\Windows NT\CurrentVersion", Some("CurrentBuildNumber")).is_some_and(|b| is_11_build(&b))
+}
+
+fn is_11_build(build: &str) -> bool {
+    build.trim().parse::<u32>().is_ok_and(|b| b >= 22000)
 }
 
 /// This exe is the one the installer put there (for this user or for all users).
@@ -185,6 +239,11 @@ fn repair_to(exe: &str) {
     if stale {
         let _ = set_for(Some(exe));
     }
+    // "Take ownership" in the new menu to the same exe
+    let want = format!("\"{exe}\" {} \"%1\"", crate::ownership::SWITCH);
+    if runas_is_on() && read(&format!(r"{RUNAS}\command"), None).as_deref() != Some(want.as_str()) {
+        let _ = runas_to(exe);
+    }
 }
 
 #[cfg(test)]
@@ -194,5 +253,11 @@ mod tests {
     #[test]
     fn this_test_is_not_the_installed_copy() {
         assert!(!is_installed(&std::env::current_exe().unwrap()));
+    }
+
+    #[test]
+    fn windows_11_by_its_build() {
+        assert!(is_11_build("22000") && is_11_build("26100"));
+        assert!(!is_11_build("19045") && !is_11_build("20348") && !is_11_build(""));
     }
 }

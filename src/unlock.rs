@@ -32,6 +32,8 @@ enum Outcome {
 }
 
 pub fn run(targets: Vec<PathBuf>, elevated: bool) {
+    let paths: Vec<String> = targets.iter().map(|t| t.display().to_string()).collect();
+    crate::log::write(&format!("Unlock: {}", paths.join(", ")));
     let (outcome, spared) = unlock(&targets);
     // still held (not only by what is spared) and not yet administrator: once more as administrator (it notifies itself)
     let only_spared = matches!(&outcome, Outcome::Held(names) if names.iter().all(|n| spared.contains(n)));
@@ -78,12 +80,22 @@ fn unlock(targets: &[PathBuf]) -> (Outcome, Vec<String>) {
     }
     // a failure to end one is not lost: the second scan below names what still holds the file in the notification
     for l in &ordinary {
-        if !procs::wait_exit(l.pid, 5000) {
-            let _ = procs::terminate(l.pid, l.start_time);
-        }
+        let what = if procs::wait_exit(l.pid, 5000) {
+            "closed".to_string()
+        } else {
+            match procs::terminate(l.pid, l.start_time) {
+                Ok(()) => "ended (did not close within 5 s)".into(),
+                Err(e) => format!("not ended: {e}"),
+            }
+        };
+        crate::log::write(&format!("Unlock: {} (PID {}) {what}", shown_name(l), l.pid));
     }
     for l in explorer {
-        let _ = procs::restart_explorer(l.pid, l.start_time);
+        let what = match procs::restart_explorer(l.pid, l.start_time) {
+            Ok(()) => "restarted".to_string(),
+            Err(e) => format!("not restarted: {e}"),
+        };
+        crate::log::write(&format!("Unlock: File Explorer (PID {}) {what}", l.pid));
     }
     std::thread::sleep(std::time::Duration::from_millis(400));
     let again = locks::scan(targets);
@@ -197,6 +209,7 @@ fn notify(targets: &[PathBuf], outcome: Outcome, spared: &[String]) {
             .replace("{who}", &spared.join(", ")),
         );
     }
+    crate::log::write(&format!("Unlock {name}: {title} – {text}"));
     if toast(title, &text) {
         return;
     }

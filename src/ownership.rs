@@ -10,7 +10,7 @@
 
 use crate::i18n::{count, os_error, tr};
 use crate::procs::wide;
-use crate::unlock::{name_of, relaunch_elevated, toast};
+use crate::unlock::{name_of, relaunch_elevated};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use windows_sys::Win32::Foundation::{CloseHandle, ERROR_NOT_ALL_ASSIGNED, ERROR_SUCCESS, GetLastError, HANDLE, LUID, LocalFree};
@@ -32,6 +32,12 @@ use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken}
 pub const SWITCH: &str = "--take-ownership";
 /// Puts back the owners and permissions written down by a take ownership (the file of that list follows).
 pub const RESTORE_SWITCH: &str = "--restore-ownership";
+
+/// The notification of Windows, also written to the log (when logging is on).
+fn toast(title: &str, text: &str) -> bool {
+    crate::log::write(&format!("Ownership: {title} – {text}"));
+    crate::unlock::toast(title, text)
+}
 
 /// The text of the last error of Windows on this thread.
 fn last_error() -> String {
@@ -249,6 +255,8 @@ pub fn run(targets: Vec<PathBuf>, elevated: bool) {
         }
         return;
     }
+    let paths: Vec<String> = targets.iter().map(|t| t.display().to_string()).collect();
+    crate::log::write(&format!("Take ownership: {}", paths.join(", ")));
     let failed: Vec<String> = targets.iter().filter_map(|t| take(t).err()).collect();
     let name = name_of(&targets);
     if failed.is_empty() {
@@ -453,6 +461,7 @@ pub fn restore(file: &Path) {
         return;
     }
     let Ok(text) = std::fs::read_to_string(file) else { return };
+    crate::log::write(&format!("Undo ownership: {}", file.display()));
     // the privileges to set any owner again
     let _who = match Who::new() {
         Ok(w) => w,

@@ -170,8 +170,12 @@ end;
 // uninstall keeps them). %AppData%\HeMi goes too when no other HeMi app has anything there.
 procedure CurUninstallStepChanged(CurUninstallStep: TUninstallStep);
 var
-  Dir: String;
+  Dir, Cmd: String;
 begin
+  // "Take ownership" in the new menu of folders (the verb runas of the user) – only when it is the one of HeMiUnlocker
+  if CurUninstallStep = usUninstall then
+    if RegQueryStringValue(HKCU, 'Software\Classes\Directory\shell\runas\command', '', Cmd) and (Pos('hemiunlocker', Lowercase(Cmd)) > 0) then
+      RegDeleteKeyIncludingSubkeys(HKCU, 'Software\Classes\Directory\shell\runas');
   if CurUninstallStep <> usPostUninstall then Exit;
   Dir := ExpandConstant('{userappdata}\HeMi\HeMiUnlocker');
   if not DirExists(Dir) then Exit;

@@ -272,6 +272,11 @@ pub fn show_in_explorer(path: &str) {
     let _ = Command::new(explorer()).raw_arg(format!("/select,\"{path}\"")).spawn();
 }
 
+/// A folder in File Explorer, by the full path of explorer.exe.
+pub fn open_folder(path: &std::path::Path) {
+    let _ = Command::new(explorer()).arg(path).spawn();
+}
+
 /// Opens a file or a link (mailto:, a text file …) in its default app.
 pub fn shell_open(target: &str) {
     let (verb, t) = (wide("open"), wide(target));

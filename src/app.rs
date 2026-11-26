@@ -94,6 +94,8 @@ enum Confirm {
     Force(Row),
     Explorer(Row),
     CloseAll(Vec<Row>),
+    /// The offer of "Take ownership" right in the new context menu of Windows 11, after the item was switched on.
+    Runas,
 }
 
 enum Action {
@@ -110,6 +112,9 @@ enum Action {
     RelaunchAsAdmin,
     DismissToast,
     ToggleMenu,
+    ToggleRunas,
+    OpenLog,
+    OpenSettingsFolder,
     About(bool),
     Open(String),
     OpenLicences,
@@ -140,6 +145,9 @@ pub struct HeMiUnlockerApp {
     look: crate::look::Look,
     focused: bool,
     menu_on: bool,
+    /// Windows 11: the switch of "Take ownership" in the new context menu is shown.
+    win11: bool,
+    runas_on: bool,
     about: bool,
     /// The third-party notices open under the links of About.
     licences: bool,
@@ -179,6 +187,8 @@ impl HeMiUnlockerApp {
             look,
             focused: true,
             menu_on: crate::shell_menu::is_on(),
+            win11: crate::shell_menu::is_windows_11(),
+            runas_on: crate::shell_menu::runas_is_on(),
             about: false,
             licences: false,
         };
@@ -249,6 +259,27 @@ impl HeMiUnlockerApp {
         });
     }
 
+    /// "Take ownership" of folders right in the new context menu of Windows 11 on or off (for this user, at once).
+    fn set_runas(&mut self, on: bool) {
+        match crate::shell_menu::set_runas(on) {
+            Ok(()) => {
+                crate::log::write(if on { "Take ownership in the new menu turned on" } else { "Take ownership in the new menu turned off" });
+                if on {
+                    self.toast(
+                        tr("“Take ownership” is now right in the menu of folders.", "„Převzít vlastnictví“ je teď přímo v nabídce složek."),
+                        Tone::Success,
+                    );
+                }
+            }
+            Err(e) => {
+                crate::log::write(&format!("Take ownership in the new menu: {e}"));
+                self.toast(e, Tone::Critical);
+            }
+        }
+        // what Windows has now (another program may use the place meanwhile)
+        self.runas_on = crate::shell_menu::runas_is_on();
+    }
+
     fn toast(&mut self, text: impl Into<String>, tone: Tone) {
         self.toast = Some(Toast { text: text.into(), tone, until: Instant::now() + Duration::from_secs(6) });
     }
@@ -265,6 +296,15 @@ impl HeMiUnlockerApp {
                 }
                 Event::Done { pid, name, outcome } => {
                     self.busy.remove(&pid);
+                    let what = match &outcome {
+                        Outcome::Closed => "closed".to_string(),
+                        Outcome::Killed => "ended (force quit)".into(),
+                        Outcome::ExplorerRestarted => "restarted".into(),
+                        Outcome::NoWindow => "not closed: no window".into(),
+                        Outcome::Timeout => "not closed yet after 8 s".into(),
+                        Outcome::Failed(e) => format!("failed: {e}"),
+                    };
+                    crate::log::write(&format!("Window: {name} (PID {pid}) {what}"));
                     match outcome {
                         Outcome::Closed => {
                             self.toast(tr("{name} closed.", "Program {name} se zavřel.").replace("{name}", &name), Tone::Success);
@@ -406,6 +446,43 @@ impl HeMiUnlockerApp {
                 });
             });
         });
+        // Windows 11 only: its new menu shows the submenu under "Show more options" – "Take ownership" of folders can be
+        // right in it (the verb "runas", tried 2026-11-26)
+        if self.win11 {
+            ui.add_space(4.0);
+            card(ui, &p, |ui| {
+                row_layout(ui, 44.0, |ui| {
+                    ui.label(RichText::new(tr("Take ownership in the new menu", "Převzít vlastnictví v novém menu")).size(14.0).color(p.text)).on_hover_text(tr(
+                        "“Take ownership” right in the context menu of folders in Windows 11, not under “Show more options”. It uses the place of Windows' own “runas” verb – a way Microsoft does not document, so it may stop working with an update of Windows. Only for your account.",
+                        "„Převzít vlastnictví“ přímo v kontextové nabídce složek ve Windows 11, ne až pod „Zobrazit další možnosti“. Využívá místo vestavěného příkazu „runas“ – Microsoft tento způsob nedokumentuje, takže s aktualizací Windows může přestat fungovat. Jen pro tvůj účet.",
+                    ));
+                    ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                        ui.label(RichText::new(if self.runas_on { tr("On", "Zapnuto") } else { tr("Off", "Vypnuto") }).size(14.0).color(p.text));
+                        if toggle(ui, &p, self.runas_on).clicked() {
+                            acts.push(Action::ToggleRunas);
+                        }
+                    });
+                });
+            });
+        }
+        ui.add_space(14.0);
+        section(ui, &p, tr("Diagnostics", "Diagnostika"));
+        card(ui, &p, |ui| {
+            row_layout(ui, 44.0, |ui| {
+                ui.label(RichText::new(tr("Logging", "Protokolování")).size(14.0).color(p.text)).on_hover_text(tr(
+                    "Writes what HeMiUnlocker does (unlocking, ended programs, taking ownership, errors) to log.txt in the settings folder. Never the contents of files.",
+                    "Zapisuje, co HeMiUnlocker dělá (odemykání, ukončené programy, převzetí vlastnictví, chyby), do log.txt ve složce nastavení. Nikdy obsah souborů.",
+                ));
+                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                    ui.label(RichText::new(if self.look.logging { tr("On", "Zapnuto") } else { tr("Off", "Vypnuto") }).size(14.0).color(p.text));
+                    if toggle(ui, &p, self.look.logging).clicked() {
+                        let mut l = self.look;
+                        l.logging = !l.logging;
+                        acts.push(Action::SetLook(l));
+                    }
+                });
+            });
+        });
         ui.add_space(14.0);
         section(ui, &p, tr("About", "O aplikaci"));
         ui.spacing_mut().item_spacing.y = 4.0;
@@ -427,6 +504,8 @@ impl HeMiUnlockerApp {
             (tr("What's new", "Co je nového"), RELEASES, Action::Open(format!("https://{RELEASES}"))),
             (tr("Report a problem", "Nahlásit problém"), CONTACT, Action::Open(format!("https://{CONTACT}"))),
             (tr("Licenses", "Licence"), "", Action::OpenLicences),
+            (tr("Open log", "Otevřít protokol"), "log.txt", Action::OpenLog),
+            (tr("Open settings folder", "Otevřít složku nastavení"), "", Action::OpenSettingsFolder),
         ];
         // HeMi Launcher on this PC: the updates are its job
         if crate::launcher::exe().is_some() {
@@ -444,7 +523,8 @@ impl HeMiUnlockerApp {
             ui.add_space(10.0);
             card(ui, &p, |ui| {
                 // the table of the notices keeps its columns: scrolled sideways in a narrow window
-                egui::ScrollArea::both().id_salt("licences").max_height(ui.available_height().max(160.0)).show(ui, |ui| {
+                // the settings page scrolls as a whole: the notices get a height of their own
+                egui::ScrollArea::both().id_salt("licences").max_height(320.0).show(ui, |ui| {
                     ui.add(egui::Label::new(RichText::new(include_str!("../assets/ThirdPartyNotices.txt")).monospace().size(11.0).color(p.text2)).extend());
                 });
             });
@@ -774,6 +854,15 @@ impl HeMiUnlockerApp {
                 .replace("{name}", &r.title()),
                 tr("Force quit", "Vynutit ukončení"),
             ),
+            Confirm::Runas => (
+                tr("“Take ownership” right in the menu?", "„Převzít vlastnictví“ přímo v nabídce?"),
+                tr(
+                    "In Windows 11 the HeMiUnlocker items are under “Show more options”. “Take ownership” of folders can be right in the new menu – through the place of Windows' own “runas” verb, a way Microsoft does not document (it may stop working with an update of Windows). Only for your account; “Take ownership in the new menu” in the settings turns it off again.",
+                    "Ve Windows 11 jsou položky HeMiUnlockeru až pod „Zobrazit další možnosti“. „Převzít vlastnictví“ u složek může být přímo v novém menu – přes místo vestavěného příkazu „runas“, což Microsoft nedokumentuje (s aktualizací Windows to může přestat fungovat). Jen pro tvůj účet; v nastavení to vypneš přepínačem „Převzít vlastnictví v novém menu“.",
+                )
+                .to_string(),
+                tr("Turn on", "Zapnout"),
+            ),
             Confirm::Explorer(_) => (
                 tr("Restart File Explorer?", "Restartovat Průzkumníka souborů?"),
                 tr(
@@ -834,6 +923,7 @@ impl HeMiUnlockerApp {
             Some(true) => match self.confirm.take() {
                 Some(Confirm::Force(r)) => self.kill(ctx, &r),
                 Some(Confirm::Explorer(r)) => self.restart_explorer(ctx, &r),
+                Some(Confirm::Runas) => self.set_runas(true),
                 Some(Confirm::CloseAll(rows)) => {
                     for r in rows {
                         self.close(ctx, &r);
@@ -850,11 +940,18 @@ impl HeMiUnlockerApp {
         for a in acts {
             match a {
                 Action::SetLook(l) => {
+                    // the line about switching it off written while it is still on
+                    if self.look.logging && !l.logging {
+                        crate::log::write("Logging turned off");
+                    }
                     // applied anyway; only keeping it for the next start failed
                     if let Err(e) = l.save() {
                         self.toast(format!("{}: {e}", tr("The appearance could not be saved", "Vzhled se nepodařilo uložit")), Tone::Caution);
                     }
                     crate::i18n::set(l.language);
+                    if l.logging && !self.look.logging {
+                        crate::log::write(&format!("Logging turned on (HeMiUnlocker {})", env!("CARGO_PKG_VERSION")));
+                    }
                     self.look = l;
                     // the new colors at once, not after the next look at the theme
                     self.theme_checked = Instant::now().checked_sub(Duration::from_secs(5)).unwrap_or_else(Instant::now);
@@ -884,11 +981,13 @@ impl HeMiUnlockerApp {
                 Action::Open(target) => procs::shell_open(&target),
                 Action::TakeOwnership => {
                     if !crate::ownership::start(&self.targets) {
+                        crate::log::write("Take ownership: the start as administrator was cancelled");
                         self.toast(tr("Ownership needs administrator rights.", "Převzetí vlastnictví potřebuje oprávnění správce."), Tone::Caution);
                     }
                 }
                 Action::UndoOwnership => {
                     if !crate::ownership::start_restore() {
+                        crate::log::write("Undo ownership: the start as administrator was cancelled");
                         self.toast(tr("Undoing needs administrator rights.", "Vrácení potřebuje oprávnění správce."), Tone::Caution);
                     }
                 }
@@ -899,6 +998,7 @@ impl HeMiUnlockerApp {
                 Action::ToggleMenu => match crate::shell_menu::set(!self.menu_on) {
                     Ok(()) => {
                         self.menu_on = !self.menu_on;
+                        crate::log::write(if self.menu_on { "Context menu item turned on" } else { "Context menu item turned off" });
                         let text = if self.menu_on {
                             tr(
                                 "The item is in the File Explorer menu (in Windows 11 under “Show more options”).",
@@ -908,8 +1008,35 @@ impl HeMiUnlockerApp {
                             tr("The item was removed from the File Explorer menu.", "Položka byla z nabídky Průzkumníka souborů odebrána.")
                         };
                         self.toast(text, Tone::Success);
+                        // Windows 11 hides it under "Show more options": "Take ownership" right in the new menu offered
+                        // (nothing changes unless the user says yes)
+                        self.runas_on = crate::shell_menu::runas_is_on();
+                        if self.menu_on && self.win11 && !self.runas_on && self.confirm.is_none() {
+                            self.confirm = Some(Confirm::Runas);
+                        }
                     }
-                    Err(e) => self.toast(e, Tone::Critical),
+                    Err(e) => {
+                        crate::log::write(&format!("Context menu item: {e}"));
+                        self.toast(e, Tone::Critical);
+                    }
+                },
+                Action::ToggleRunas => self.set_runas(!self.runas_on),
+                Action::OpenLog => match crate::log::file().filter(|f| f.is_file()) {
+                    // as administrator no app of the user is started with the file (the user may change which one
+                    // opens .txt): shown in File Explorer instead
+                    Some(f) if self.admin => procs::show_in_explorer(&f.display().to_string()),
+                    Some(f) => procs::shell_open(&f.display().to_string()),
+                    None => self.toast(
+                        tr("There is no log yet. Turn on Logging first.", "Protokol zatím neexistuje. Nejdřív zapni Protokolování."),
+                        Tone::Caution,
+                    ),
+                },
+                Action::OpenSettingsFolder => match crate::look::dir() {
+                    Some(d) => {
+                        let _ = std::fs::create_dir_all(&d);
+                        procs::open_folder(&d);
+                    }
+                    None => self.toast(tr("The settings folder was not found.", "Složka nastavení se nenašla."), Tone::Caution),
                 },
             }
         }
@@ -949,7 +1076,10 @@ impl eframe::App for HeMiUnlockerApp {
             .show(ui, |ui| {
                 self.header(ui, &mut acts);
                 if self.about {
-                    self.about_page(ui, &mut acts);
+                    // more than fits a small window: the settings scroll
+                    egui::ScrollArea::vertical().id_salt("settings").auto_shrink([false, false]).show(ui, |ui| {
+                        self.about_page(ui, &mut acts);
+                    });
                     return;
                 }
                 self.target_card(ui, &mut acts);
