@@ -9,7 +9,7 @@ pub struct Look {
     pub theme: u8,
     /// 0 as Windows, 1 English, 2 Czech.
     pub language: u8,
-    /// What HeMiUnlocker does written to log.txt in the settings folder (off by default).
+    /// What HeMiUnlocker does written to Logs\log-<day>.txt in the settings folder (off by default).
     pub logging: bool,
 }
 

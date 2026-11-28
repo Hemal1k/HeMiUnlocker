@@ -470,8 +470,8 @@ impl HeMiUnlockerApp {
         card(ui, &p, |ui| {
             row_layout(ui, 44.0, |ui| {
                 ui.label(RichText::new(tr("Logging", "Protokolování")).size(14.0).color(p.text)).on_hover_text(tr(
-                    "Writes what HeMiUnlocker does (unlocking, ended programs, taking ownership, errors) to log.txt in the settings folder. Never the contents of files.",
-                    "Zapisuje, co HeMiUnlocker dělá (odemykání, ukončené programy, převzetí vlastnictví, chyby), do log.txt ve složce nastavení. Nikdy obsah souborů.",
+                    "Writes what HeMiUnlocker does (unlocking, ended programs, taking ownership, errors) to one log a day in the Logs folder of the settings (the last week). Never the contents of files.",
+                    "Zapisuje, co HeMiUnlocker dělá (odemykání, ukončené programy, převzetí vlastnictví, chyby), do jednoho protokolu za den ve složce Logs v nastavení (poslední týden). Nikdy obsah souborů.",
                 ));
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     ui.label(RichText::new(if self.look.logging { tr("On", "Zapnuto") } else { tr("Off", "Vypnuto") }).size(14.0).color(p.text));
@@ -504,7 +504,7 @@ impl HeMiUnlockerApp {
             (tr("What's new", "Co je nového"), RELEASES, Action::Open(format!("https://{RELEASES}"))),
             (tr("Report a problem", "Nahlásit problém"), CONTACT, Action::Open(format!("https://{CONTACT}"))),
             (tr("Licenses", "Licence"), "", Action::OpenLicences),
-            (tr("Open log", "Otevřít protokol"), "log.txt", Action::OpenLog),
+            (tr("Open log", "Otevřít protokol"), r"Logs\log-<day>.txt", Action::OpenLog),
             (tr("Open settings folder", "Otevřít složku nastavení"), "", Action::OpenSettingsFolder),
         ];
         // HeMi Launcher on this PC: the updates are its job
@@ -942,7 +942,7 @@ impl HeMiUnlockerApp {
                 Action::SetLook(l) => {
                     // the line about switching it off written while it is still on
                     if self.look.logging && !l.logging {
-                        crate::log::write("Logging turned off");
+                        crate::log::switched(false);
                     }
                     // applied anyway; only keeping it for the next start failed
                     if let Err(e) = l.save() {
@@ -950,7 +950,7 @@ impl HeMiUnlockerApp {
                     }
                     crate::i18n::set(l.language);
                     if l.logging && !self.look.logging {
-                        crate::log::write(&format!("Logging turned on (HeMiUnlocker {})", env!("CARGO_PKG_VERSION")));
+                        crate::log::switched(true);
                     }
                     self.look = l;
                     // the new colors at once, not after the next look at the theme

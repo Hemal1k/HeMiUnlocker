@@ -19,6 +19,8 @@ use std::path::PathBuf;
 fn main() -> eframe::Result {
     // as OsString: a file name that is not valid Unicode (NTFS allows it) must not end the app (args() would panic)
     let args: Vec<std::ffi::OsString> = std::env::args_os().skip(1).collect();
+    log::catch_panics();
+    log::started(&args);
     let first = args.first().and_then(|a| a.to_str());
     // the installer after an installation or a move to another folder: the File Explorer item points to this exe
     if first == Some("--repair") {
